@@ -20,20 +20,29 @@ sudo -u millipds -s
 
 # all commands below this point are run as the millipds user
 
-# cd to its home dir (/opt/millipds in this case)
-cd ~
-
 # create a virtualenv (maybe this will prove unnecessary, but it probably doesn't hurt)
-python3 -m venv .venv
+python3 -m venv ~/.venv
 
 # activate the virtualenv (this must be re-run every time you want to use it)
-source .venv/bin/activate
+source ~/.venv/bin/activate
+
+# all commands below this point are run inside the virtualenv
 
 # upgrade pip (maybe optional, again, probably doesn't hurt)
 python3 -m pip install --upgrade pip
 
 # install millipds
 python3 -m pip install --upgrade millipds@git+https://github.com/DavidBuchanan314/millipds
+```
+
+Upgrading:
+
+```sh
+sudo -u millipds -s
+source ~/.venv/bin/activate
+python3 -m pip install --upgrade --force-reinstall --no-cache-dir millipds@git+https://github.com/DavidBuchanan314/millipds
+exit
+sudo systemctl restart millipds
 ```
 
 Create a systemd service
@@ -48,8 +57,6 @@ Type=simple
 Restart=on-failure
 User=millipds
 ExecStart=/opt/millipds/.venv/bin/millipds --args-go=here
-StandardOutput=journal+console
-StandardError=journal+console
 
 [Install]
 WantedBy=multi-user.target
@@ -57,7 +64,8 @@ WantedBy=multi-user.target
 
 Put this in `/etc/systemd/system/millipds.service`
 
-```
-sudo systemctl start millipds
-sudo systemctl status millipds
+```sh
+sudo systemctl start millipds # make it start now
+sudo systemctl enable millipds # make it start on every boot
+sudo systemctl status millipds # check that it's running
 ```
