@@ -38,8 +38,18 @@ async def run(sock_path: Optional[str], host: str, port: int):
 	await site.start()
 
 	if sock_path:
-		os.chmod(sock_path, 0o770) # give group access to the socket (so that nginx can access it via a shared group)
+		# give group access to the socket (so that nginx can access it via a shared group)
 		# see https://github.com/aio-libs/aiohttp/issues/4155#issuecomment-693979753
+		import grp
+		try:
+			sock_gid = grp.getgrnam(config.GROUPNAME).gr_gid
+			os.chown(sock_path, os.geteuid(), sock_gid)
+		except KeyError:
+			logging.warn(f"Failed to set socket group - group {config.GROUPNAME!r} not found.")
+		except PermissionError:
+			logging.warn(f"Failed to set socket group - are you a member of the {config.GROUPNAME!r} group?")
+
+		os.chmod(sock_path, 0o770)
 
 	while True:
 		await asyncio.sleep(3600)  # sleep forever

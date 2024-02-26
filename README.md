@@ -12,8 +12,15 @@ python3 -m pip install -e .
 Deployment on Ubuntu (and similar systems) [WIP]
 
 ```sh
+# create group for service socket access
+sudo addgroup millipds-sock
+
 # create unprivileged user
-sudo adduser --system --shell /bin/false --home /opt/millipds millipds
+sudo adduser --system --shell /bin/false --home /opt/millipds --group millipds-sock millipds
+
+# add the user to the group (leaving its primary group as the default)
+# (TODO: can this be combined with the above command(s)?
+sudo usermod -G millipds-sock millipds
 
 # start a shell session under the new user
 sudo -u millipds -s
@@ -93,6 +100,14 @@ server {
 TODO: is fail_timeout=0 sensible?
 
 Put this in `/etc/nginx/sites-enabled/millipds`
+
+Note: For a prod setup, you'll need to enable SSL. That's outside the scope of this guide, but one way is "once you have the service accessible via HTTP, use certbot"
+
+Add the user that nginx runs under (`www-data`) to the `millipds-sock` group:
+
+```sh
+sudo adduser www-data millipds-sock
+```
 
 Start the service:
 
