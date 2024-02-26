@@ -1,0 +1,38 @@
+[build-system]
+requires = [
+	"setuptools>=61.0",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "millipds"
+version = "0.0.1"
+authors = [
+ 	{ name="David Buchanan", email="d@vidbuchanan.co.uk" },
+]
+description = "A lightweight atproto PDS"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+	"Programming Language :: Python :: 3",
+	"License :: OSI Approved :: MIT License",
+	"Operating System :: OS Independent",
+]
+dependencies = [
+	"cbrrr==0.0.1",
+	"atmst",
+]
+
+[project.optional-dependencies]
+docs = [
+	"sphinx",
+	"sphinx-rtd-theme",
+	"sphinxcontrib-jquery",
+]
+
+[project.urls]
+Homepage = "https://github.com/DavidBuchanan314/millipds"
+Issues = "https://github.com/DavidBuchanan314/millipds/issues"
+
+[project.scripts]
+millipds = "millipds.__main__:main"
