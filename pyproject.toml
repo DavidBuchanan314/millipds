@@ -21,6 +21,7 @@ classifiers = [
 dependencies = [
 	"cbrrr==0.0.1",
 	"atmst",
+	"aiohttp"
 ]
 
 [project.optional-dependencies]

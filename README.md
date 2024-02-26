@@ -1,9 +1,9 @@
 # millipds [WIP]
 A successor to picopds
 
-Dev install:
+Local dev install:
 
-```
+```sh
 git clone https://github.com/DavidBuchanan314/millipds
 cd millipds
 python3 -m pip install -e .
@@ -56,11 +56,13 @@ After=network.target
 Type=simple
 Restart=on-failure
 User=millipds
-ExecStart=/opt/millipds/.venv/bin/millipds --args-go=here
+ExecStart=/opt/millipds/.venv/bin/millipds --sock_path=/run/millipds.sock
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+TODO: put this file in the repo so it can be copied into place more easily.
 
 Put this in `/etc/systemd/system/millipds.service`
 
