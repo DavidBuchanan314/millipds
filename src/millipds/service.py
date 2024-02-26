@@ -1,5 +1,5 @@
 from typing import Optional
-import importlib_metadata
+import importlib.metadata
 import logging
 
 from aiohttp import web
@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.DEBUG) # TODO: make this configurable?
 
 
 async def hello(request: web.Request):
-	version = importlib_metadata.version("millipds")
+	version = importlib.metadata.version("millipds")
 	return web.Response(text=f"Hello! This is an ATProto PDS instance, running https://github.com/DavidBuchanan314/millipds (v{version})")
 
 app = web.Application()
