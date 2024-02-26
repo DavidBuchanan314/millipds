@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 
 from . import service
 
@@ -13,7 +14,7 @@ def main():
 
 	args = parser.parse_args()
 
-	service.run(sock_path=args.sock_path, host=args.host, port=args.port)
+	asyncio.run(service.run(sock_path=args.sock_path, host=args.host, port=args.port))
 
 """
 This is the entrypoint for python3 -m millipds
