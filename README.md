@@ -1,6 +1,8 @@
 # millipds [WIP]
 A successor to picopds
 
+NOTE: Barely any code has been written here yet! It's still in the planning phase. Check out [picopds](https://github.com/davidBuchanan314/picopds) if you want to see something that works.
+
 Local dev install:
 
 ```sh
@@ -16,11 +18,10 @@ Deployment on Ubuntu (and similar systems) [WIP]
 sudo addgroup millipds-sock
 
 # create unprivileged user
-sudo adduser --system --shell /bin/false --home /opt/millipds --group millipds-sock millipds
+sudo adduser --system --shell /bin/false --home /opt/millipds millipds
 
 # add the user to the group (leaving its primary group as the default)
-# (TODO: can this be combined with the above command(s)?
-sudo usermod -G millipds-sock millipds
+sudo usermod -aG millipds-sock millipds
 
 # start a shell session under the new user
 sudo -u millipds -s
