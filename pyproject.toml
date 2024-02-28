@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
 	"cbrrr==0.0.1",
-	"atmst",
+	"atmst@git+https://github.com/DavidBuchanan314/atmst",
 	"aiohttp"
 ]
 
