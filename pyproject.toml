@@ -21,7 +21,9 @@ classifiers = [
 dependencies = [
 	"cbrrr==0.0.1",
 	"atmst@git+https://github.com/DavidBuchanan314/atmst",
-	"aiohttp"
+	"aiohttp",
+	"aiohttp_cors",
+	"pyjwt[crypto]==2.8.0", # bind to a specific version because jwt_monkeypatch might break!
 ]
 
 [project.optional-dependencies]

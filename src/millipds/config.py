@@ -8,5 +8,6 @@ LOG_FMT = '%{X-Forwarded-For}i %t (%Tf) "%r" %s %b "%{Referer}i" "%{User-Agent}i
 
 GROUPNAME = "millipds-sock"
 
-DB_PATH="./millipds.sqlite3"
-REPOS_DIR="./repos/"
+DATA_DIR = "./data/"
+MAIN_DB_PATH = DATA_DIR + "millipds.sqlite3"
+REPOS_DIR = DATA_DIR + "repos/"

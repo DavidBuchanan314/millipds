@@ -15,7 +15,7 @@ python3 -m pip install -e .
 
 (note: I have no idea what I'm doing with this!)
 
-```
+```sh
 podman build -f millipds_dev.dockerfile -t millipds_dev
 podman run --rm -it -p 8123:8123 millipds_dev
 ```
