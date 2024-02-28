@@ -3,7 +3,7 @@ A successor to picopds
 
 NOTE: Barely any code has been written here yet! It's still in the planning phase. Check out [picopds](https://github.com/davidBuchanan314/picopds) if you want to see something that works.
 
-Local dev install:
+### Local dev install:
 
 ```sh
 git clone https://github.com/DavidBuchanan314/millipds
@@ -11,7 +11,16 @@ cd millipds
 python3 -m pip install -e .
 ```
 
-Deployment on Ubuntu (and similar systems) [WIP]
+### Dockerised dev install, via podman:
+
+(note: I have no idea what I'm doing with this!)
+
+```
+podman build -f millipds_dev.dockerfile -t millipds_dev
+podman run --rm -it -p 8123:8123 millipds_dev
+```
+
+### Production deployment on Ubuntu (and similar systems) [WIP]
 
 ```sh
 # create group for service socket access
