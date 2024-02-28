@@ -2,6 +2,7 @@ from typing import Optional
 import importlib.metadata
 import logging
 import asyncio
+import aiohttp_cors
 import os
 
 from aiohttp import web
@@ -18,10 +19,28 @@ async def hello(request: web.Request):
 https://github.com/DavidBuchanan314/millipds"""
 	return web.Response(text=msg)
 
+async def server_describe_server(request: web.Request):
+	return web.json_response({
+		"did": "did:web:placeholder.invalid", # TODO: should probably do something with this!
+		"availableUserDomains": []
+	})
+
 app = web.Application()
 app.add_routes([
 	web.get("/", hello),
+	web.get("/xrpc/com.atproto.server.describeServer", server_describe_server),
 ])
+
+cors = aiohttp_cors.setup(app, defaults={
+	"*": aiohttp_cors.ResourceOptions(
+		allow_credentials=True,
+		expose_headers="*",
+		allow_headers="*"
+	)
+})
+
+for route in app.router.routes():
+	cors.add(route)
 
 """
 This gets invoked via millipds.__main__.py
