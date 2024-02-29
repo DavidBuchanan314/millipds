@@ -24,6 +24,7 @@ dependencies = [
 	"aiohttp",
 	"aiohttp_cors",
 	"pyjwt[crypto]==2.8.0", # bind to a specific version because jwt_monkeypatch might break!
+	"docopt",
 ]
 
 [project.optional-dependencies]

@@ -17,7 +17,10 @@ RUN chown -R millipds src/
 USER millipds
 RUN python3 -m pip install -v src/
 
+# this doesn't do anything yet, but one day it will
+RUN python3 -m millipds init dev.millipds.test --sandbox
+
 # do the thing
-CMD python3 -m millipds --host=0.0.0.0 --port=8123
+CMD python3 -m millipds run --listen_host=0.0.0.0 --listen_port=8123
 
 EXPOSE 8123/tcp
