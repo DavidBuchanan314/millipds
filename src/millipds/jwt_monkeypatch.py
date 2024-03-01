@@ -24,7 +24,7 @@ _orig_raw_to_der_signature = algorithms.raw_to_der_signature
 
 def _low_s_patched_raw_to_der_signature(raw_sig: bytes, curve: ec.EllipticCurve) -> bytes:
 	der_sig = _orig_raw_to_der_signature(raw_sig, curve)
-	assert_dss_sig_is_low_s(der_sig)
+	assert_dss_sig_is_low_s(der_sig, curve)
 	return der_sig
 
 algorithms.raw_to_der_signature = _low_s_patched_raw_to_der_signature
