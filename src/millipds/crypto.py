@@ -5,7 +5,7 @@ from cryptography.exceptions import InvalidSignature
 
 """
 This is scary hand-rolled cryptography, because there aren't really any alternative
-options in the python ecosystem. pyca/crytography won't add low-s support unless
+options in the python ecosystem. pyca/crytography probably won't add low-s support unless
 openssl itself supports it, and pyjwt depends on pyca/cryptography.
 
 Note for future maintainers (most likely me):
