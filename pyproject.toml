@@ -23,8 +23,9 @@ dependencies = [
 	"atmst@git+https://github.com/DavidBuchanan314/atmst",
 	"aiohttp",
 	"aiohttp_cors",
-	"pyjwt[crypto]==2.8.0", # bind to a specific version because jwt_monkeypatch might break!
+	"pyjwt[crypto]",
 	"docopt",
+	"apsw",
 ]
 
 [project.optional-dependencies]

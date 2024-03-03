@@ -17,8 +17,8 @@ RUN chown -R millipds src/
 USER millipds
 RUN python3 -m pip install -v src/
 
-# this doesn't do anything yet, but one day it will
-RUN python3 -m millipds init dev.millipds.test --sandbox
+# init the db with dev presets
+RUN python3 -m millipds init millipds.test --dev
 
 # do the thing
 CMD python3 -m millipds run --listen_host=0.0.0.0 --listen_port=8123
