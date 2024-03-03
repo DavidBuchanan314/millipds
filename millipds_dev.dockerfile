@@ -20,6 +20,9 @@ RUN python3 -m pip install -v src/
 # init the db with dev presets
 RUN python3 -m millipds init millipds.test --dev
 
+# create a test user
+RUN python3 -m millipds account create bob.test did:web:bob.test --unsafe_password=hunter2
+
 # do the thing
 CMD python3 -m millipds run --listen_host=0.0.0.0 --listen_port=8123
 

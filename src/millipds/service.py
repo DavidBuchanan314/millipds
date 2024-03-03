@@ -9,8 +9,6 @@ from aiohttp import web
 
 from . import static_config
 
-logging.basicConfig(level=logging.DEBUG) # TODO: make this configurable?
-
 
 async def hello(request: web.Request):
 	version = importlib.metadata.version("millipds")
@@ -46,7 +44,7 @@ for route in app.router.routes():
 This gets invoked via millipds.__main__.py
 """
 async def run(sock_path: Optional[str], host: str, port: int):
-	runner = web.AppRunner(app, access_log_format=static_config.LOG_FMT)
+	runner = web.AppRunner(app, access_log_format=static_config.HTTP_LOG_FMT)
 	await runner.setup()
 
 	if sock_path is None:

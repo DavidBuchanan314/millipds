@@ -1,5 +1,6 @@
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature, encode_dss_signature
 from cryptography.exceptions import InvalidSignature
 
@@ -47,3 +48,24 @@ def raw_sign(privkey: ec.EllipticCurvePrivateKey, data: bytes) -> bytes:
 	)
 	signature = r.to_bytes(32, "big") + s.to_bytes(32, "big")
 	return signature
+
+
+def keygen_p256() -> ec.EllipticCurvePrivateKey:
+	return ec.generate_private_key(ec.SECP256R1())
+
+
+def privkey_to_pem(privkey: ec.EllipticCurvePrivateKey) -> str:
+	return privkey.private_bytes(
+		encoding=serialization.Encoding.PEM,
+		format=serialization.PrivateFormat.PKCS8,
+		encryption_algorithm=serialization.NoEncryption()
+	).decode()
+
+
+def privkey_from_pem(pem: str) -> ec.EllipticCurvePrivateKey:
+	privkey = serialization.load_pem_private_key(pem.encode(), password=None)
+	if not isinstance(privkey, ec.EllipticCurvePrivateKey):
+		raise TypeError("unsupported key type")
+	if not isinstance(privkey.curve, (ec.SECP256R1, ec.SECP256K1)):
+		raise TypeError("unsupported key type")
+	return privkey

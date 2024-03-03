@@ -1,20 +1,36 @@
 """
-Ideally, all SQL statements are contained within this file
+Ideally, all SQL statements are contained within this file.
+
+Password hashing also happens in here, because it doesn't make much sense to do
+it anywhere else.
 """
 
 from typing import Optional, Dict
 from functools import cached_property
 import secrets
+import os
+import logging
 
+from argon2 import PasswordHasher # maybe this should come from .crypto?
 import apsw
+import apsw.bestpractice
+
+from atmst.blockstore import BlockStore
 
 from . import static_config
 from . import util
+from . import crypto
+
+logger = logging.getLogger(__name__)
+
+# https://rogerbinns.github.io/apsw/bestpractice.html
+apsw.bestpractice.apply(apsw.bestpractice.recommended)
 
 class Database:
 	def __init__(self, path: str=static_config.MAIN_DB_PATH) -> None:
 		util.mkdirs_for_file(path)
 		self.con = apsw.Connection(path)
+		self.pw_hasher = PasswordHasher()
 
 		try:
 			if self.config["db_version"] != static_config.MILLIPDS_DB_VERSION:
@@ -27,6 +43,7 @@ class Database:
 				self._init_central_tables()
 
 	def _init_central_tables(self):
+		logger.info("initing central tables")
 		self.con.execute(
 			"""
 			CREATE TABLE config(
@@ -42,7 +59,7 @@ class Database:
 
 		self.con.execute(
 			"""
-			INSERT INTO config (
+			INSERT INTO config(
 				db_version,
 				jwt_access_secret
 			) VALUES (?, ?)
@@ -54,6 +71,7 @@ class Database:
 			"""
 			CREATE TABLE user(
 				did TEXT PRIMARY KEY NOT NULL,
+				handle TEXT NOT NULL,
 				prefs BLOB NOT NULL,
 				pw_hash TEXT NOT NULL,
 				repo_path TEXT NOT NULL,
@@ -61,6 +79,8 @@ class Database:
 			)
 			"""
 		)
+
+		self.con.execute("CREATE UNIQUE INDEX user_by_handle ON user(handle)")
 
 		self.con.execute(
 			"""
@@ -84,11 +104,20 @@ class Database:
 			if pds_did is not None:
 				self.con.execute("UPDATE config SET pds_did=?", (pds_did,))
 			if bsky_appview_pfx is not None:
-				self.con.execute("UPDATE config SET bsky_appview_pfx=?", (bsky_appview_pfx,))
+				self.con.execute(
+					"UPDATE config SET bsky_appview_pfx=?",
+					(bsky_appview_pfx,)
+				)
 			if bsky_appview_did is not None:
-				self.con.execute("UPDATE config SET bsky_appview_did=?", (bsky_appview_did,))
+				self.con.execute(
+					"UPDATE config SET bsky_appview_did=?",
+					(bsky_appview_did,)
+				)
 		
-		del self.config # invalidate the cached value
+		try:
+			del self.config # invalidate the cached value
+		except AttributeError:
+			pass
 
 	@cached_property
 	def config(self) -> Dict[str, object]:
@@ -117,3 +146,68 @@ class Database:
 			if redact_secrets and "secret" in k:
 				v = "[REDACTED]"
 			print(f"{k:<{maxlen}} : {v!r}")
+
+	def account_create(self,
+		did: str,
+		handle: str,
+		password: str,
+		privkey: crypto.ec.EllipticCurvePrivateKey
+	) -> None:
+		pw_hash = self.pw_hasher.hash(password)
+		privkey_pem = crypto.privkey_to_pem(privkey)
+		repo_path = f"{static_config.REPOS_DIR}/{util.did_to_safe_filename(did)}.sqlite3"
+		logger.info(
+			f"creating account for did={did}, handle={handle} at {repo_path}"
+		)
+		with self.con:
+			self.con.execute(
+				"""
+				INSERT INTO user(
+					did,
+					handle,
+					prefs,
+					pw_hash,
+					repo_path,
+					signing_key
+				) VALUES (?, ?, ?, ?, ?, ?)
+				""",
+				(did, handle, b"{}", pw_hash, repo_path, privkey_pem)
+			)
+			UserDatabase.init_tables(self.con, did, repo_path)
+		self.con.execute("DETACH spoke")
+
+
+class UserDBBlockStore(BlockStore):
+	pass # TODO
+
+
+class UserDatabase:
+	def __init__(self, wcon: apsw.Connection, did: str, path: str) -> None:
+		self.wcon = wcon # writes go via the hub database connection, using ATTACH
+		self.rcon = apsw.Connection(path, flags=apsw.SQLITE_OPEN_READONLY)
+		
+		# TODO: check db version and did match
+
+	@staticmethod
+	def init_tables(wcon: apsw.Connection, did: str, path: str) -> None:
+		util.mkdirs_for_file(path)
+		wcon.execute("ATTACH ? AS spoke", (path,))
+
+		wcon.execute(
+			"""
+			CREATE TABLE spoke.repo(
+				db_version INTEGER NOT NULL,
+				did TEXT NOT NULL
+			)
+			"""
+		)
+
+		wcon.execute(
+			"INSERT INTO spoke.repo(db_version, did) VALUES (?, ?)",
+			(static_config.MILLIPDS_DB_VERSION, did)
+		)
+
+		# TODO: the other tables
+
+		# nb: caller is responsible for running "DETACH spoke", after the end
+		# of the transaction

@@ -3,6 +3,7 @@
 Usage:
   millipds init <hostname> [--dev|--sandbox]
   millipds config [--pds_pfx=URL] [--pds_did=DID] [--bsky_appview_pfx=URL] [--bsky_appview_did=DID]
+  millipds account create <did> <handle> [--unsafe_password=PW]
   millipds run [--sock_path=PATH] [--listen_host=HOST] [--listen_port=PORT]
   millipds (-h | --help)
   millipds --version
@@ -19,10 +20,21 @@ Config:
   Any options not specified will be left at their previous values. Once changes
   have been made (or even if they haven't), the new config will be printed.
 
+  Do not change the config while the PDS is running (TODO: enforce this in code (or make sure it's harmless?))
+
   --pds_pfx=URL           The HTTP URL prefix that this PDS is publicly accessible at (e.g. mypds.example)
   --pds_did=DID           This PDS's DID (e.g. did:web:mypds.example)
   --bsky_appview_pfx=URL  AppView URL prefix e.g. "https://api.bsky-sandbox.dev"
   --bsky_appview_did=DID  AppView DID e.g. did:web:api.bsky-sandbox.dev
+
+Account create:
+  Create a new user account on the PDS. Bring your own DID and corresponding
+  handle - millipds will not (yet?) attempt to validate either.
+  You'll be prompted for a password interactively.
+
+  TODO: consider bring-your-own signing key?
+
+  --unsafe_password=PW  Specify password non-iteractively, for use in test scripts etc.
 
 Run:
   Launch the service (in the foreground)
@@ -36,12 +48,21 @@ General options:
   --version           Show version.
 """
 
-from docopt import docopt
 import importlib.metadata
 import asyncio
+import sys
+import logging
+from getpass import getpass
+
+from docopt import docopt
 
 from . import service
 from . import database
+from . import crypto
+
+
+logging.basicConfig(level=logging.DEBUG) # TODO: make this configurable?
+
 
 """
 This is the entrypoint for the `millipds` command (declared in project.scripts)
@@ -75,7 +96,7 @@ def main():
 				bsky_appview_pfx="https://api.bsky-sandbox.dev",
 				bsky_appview_did="did:web:api.bsky-sandbox.dev",
 			)
-		else:
+		else: # "prod" presets
 			db.update_config(
 				pds_pfx=f'https://{args["<hostname>"]}',
 				pds_did=f'did:web:{args["<hostname>"]}',
@@ -98,6 +119,24 @@ def main():
 			bsky_appview_did=args["--bsky_appview_did"],
 		)
 		db.print_config()
+	elif args["account"]:
+		if args["create"]:
+			pw = args["--unsafe_password"]
+			if pw:
+				# rationale: only allow non-iteractive password input from scripts etc.
+				if sys.stdin.buffer.isatty():
+					print("error: --unsafe_password can't be used from an interactive shell")
+					return
+			else:
+				pw = getpass(f"Password for new account: ")
+			db.account_create(
+				did=args["<did>"],
+				handle=args["<handle>"],
+				password=pw,
+				privkey=crypto.keygen_p256() # TODO: supply from arg
+			)
+		else:
+			print("CLI arg parse error?!")
 	elif args["run"]:
 		asyncio.run(service.run(
 			sock_path=args["--sock_path"],
