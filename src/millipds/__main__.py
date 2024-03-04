@@ -128,7 +128,10 @@ def main():
 					print("error: --unsafe_password can't be used from an interactive shell")
 					return
 			else:
-				pw = getpass(f"Password for new account: ")
+				pw = getpass("Password for new account: ")
+				if getpass("Confirm password: ") != pw:
+					print("error: password mismatch")
+					return
 			db.account_create(
 				did=args["<did>"],
 				handle=args["<handle>"],
