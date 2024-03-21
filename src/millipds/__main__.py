@@ -123,18 +123,15 @@ def main():
 		if args["create"]:
 			pw = args["--unsafe_password"]
 			if pw:
-				# rationale: only allow non-iteractive password input from scripts etc.
-				if sys.stdin.buffer.isatty():
-					print(
-						"error: --unsafe_password can't be used from an interactive shell"
-					)
-					return
+				print(
+					"WARNING: passing a password as a CLI arg is not recommended, for security"
+				)
 			else:
 				pw = getpass("Password for new account: ")
 				if getpass("Confirm password: ") != pw:
 					print("error: password mismatch")
 					return
-			db.account_create(
+			db.create_account(
 				did=args["<did>"],
 				handle=args["<handle>"],
 				password=pw,
@@ -145,6 +142,7 @@ def main():
 	elif args["run"]:
 		asyncio.run(
 			service.run(
+				db=db,
 				sock_path=args["--sock_path"],
 				host=args["--listen_host"],
 				port=int(args["--listen_port"]),

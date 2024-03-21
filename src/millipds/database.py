@@ -5,7 +5,7 @@ Password hashing also happens in here, because it doesn't make much sense to do
 it anywhere else.
 """
 
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Tuple
 from functools import cached_property
 import secrets
 import logging
@@ -14,6 +14,7 @@ from argon2 import PasswordHasher  # maybe this should come from .crypto?
 import apsw
 import apsw.bestpractice
 
+from cbrrr import CID
 from atmst.blockstore import BlockStore
 
 from . import static_config
@@ -75,7 +76,9 @@ class Database:
 				prefs BLOB NOT NULL,
 				pw_hash TEXT NOT NULL,
 				repo_path TEXT NOT NULL,
-				signing_key TEXT NOT NULL
+				signing_key TEXT NOT NULL,
+				head BLOB,
+				rev TEXT
 			)
 			"""
 		)
@@ -146,7 +149,7 @@ class Database:
 				v = "[REDACTED]"
 			print(f"{k:<{maxlen}} : {v!r}")
 
-	def account_create(
+	def create_account(
 		self,
 		did: str,
 		handle: str,
@@ -176,6 +179,24 @@ class Database:
 			util.mkdirs_for_file(repo_path)
 			UserDatabase.init_tables(self.con, did, repo_path)
 		self.con.execute("DETACH spoke")
+
+	def get_account(self, did_or_handle: str) -> Tuple[str, str, str]:
+		row = self.con.execute(
+			"SELECT did, handle, pw_hash FROM user WHERE did=? OR handle=?",
+			(did_or_handle, did_or_handle),
+		).fetchone()
+		if row is None:
+			raise KeyError("no account found for did")
+		did, handle, pw_hash = row
+		return did, handle, pw_hash
+
+	def list_repos(self) -> List[Tuple[str, CID, str]]:  # TODO: pagination
+		return [
+			(did, CID(head), rev)
+			for did, head, rev in self.con.execute(
+				"SELECT did, head, rev FROM user WHERE head IS NOT NULL AND rev IS NOT NULL"
+			).fetchall()
+		]
 
 
 class UserDBBlockStore(BlockStore):

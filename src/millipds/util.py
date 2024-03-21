@@ -16,7 +16,9 @@ def did_to_safe_filename(did: str) -> str:
 	"""
 
 	hexdigest = hashlib.sha256(did.encode()).hexdigest()
-	filtered = "".join(char for char in did if char in FILANEME_SAFE_CHARS)
+	filtered = "".join(
+		char for char in did.replace(":", "-") if char in FILANEME_SAFE_CHARS
+	)
 
 	# Truncate to make sure we're staying within PATH_MAX
 	# (with room to spare, in case the caller appends a file extension)
