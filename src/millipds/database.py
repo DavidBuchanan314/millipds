@@ -190,6 +190,14 @@ class Database:
 		did, handle, pw_hash, signing_key = row
 		return did, handle, pw_hash, signing_key
 
+	def did_by_handle(self, handle: str) -> Optional[str]:
+		row = self.con.execute(
+			"SELECT did FROM user WHERE handle=?", (handle,)
+		).fetchone()
+		if row is None:
+			return None
+		return row[0]
+
 	def list_repos(self) -> List[Tuple[str, CID, str]]:  # TODO: pagination
 		return [
 			(did, CID(head), rev)

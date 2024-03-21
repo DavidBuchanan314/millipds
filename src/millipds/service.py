@@ -27,10 +27,10 @@ async def atproto_service_proxy_middleware(request: web.Request, handler):
 
 
 # inject permissive CORS headers unconditionally
-#async def prepare_cors_headers(request, response: web.Response):
-#	response.headers["Access-Control-Allow-Origin"] = "*"
-#	response.headers["Access-Control-Allow-Headers"] = "atproto-accept-labelers,authorization"  # TODO: tighten?
-#	response.headers["Access-Control-Allow-Methods"] = "GET,HEAD,PUT,PATCH,POST,DELETE"
+# async def prepare_cors_headers(request, response: web.Response):
+# response.headers["Access-Control-Allow-Origin"] = "*"
+# response.headers["Access-Control-Allow-Headers"] = "atproto-accept-labelers,authorization"  # TODO: tighten?
+# response.headers["Access-Control-Allow-Methods"] = "GET,HEAD,PUT,PATCH,POST,DELETE"
 
 
 @routes.get("/")
@@ -40,6 +40,25 @@ async def hello(request: web.Request):
 
 https://github.com/DavidBuchanan314/millipds"""
 	return web.Response(text=msg)
+
+
+# we should not be implementing bsky-specific logic here!
+@routes.get("/xrpc/app.bsky.actor.getPreferences")
+async def actor_get_preferences(request: web.Request):
+	return web.json_response({"preferences": []})  # dummy response
+
+
+@routes.get("/xrpc/com.atproto.identity.resolveHandle")
+async def identity_resolve_handle(request: web.Request):
+	# TODO: forward to appview(?) if we can't answer?
+	handle = request.query.get("handle")
+	if not isinstance(handle, str):
+		print(handle)
+		raise web.HTTPBadRequest(text="missing or invalid handle")
+	did = get_db(request).did_by_handle(handle)
+	if not did:
+		raise web.HTTPNotFound(text="no user by that handle exists on this PDS")
+	return web.json_response({"did": did})
 
 
 @routes.get("/xrpc/com.atproto.server.describeServer")
@@ -220,41 +239,47 @@ async def static_appview_proxy(request: web.Request):
 def construct_app(routes, db: database.Database) -> web.Application:
 	app = web.Application(middlewares=[atproto_service_proxy_middleware])
 	app["MILLIPDS_DB"] = db
-	app["MILLIPDS_AIOHTTP_CLIENT"] = aiohttp.ClientSession() # should this be dependency-injected?
+	app["MILLIPDS_AIOHTTP_CLIENT"] = (
+		aiohttp.ClientSession()
+	)  # should this be dependency-injected?
 	app.add_routes(routes)
 
 	# list of routes to proxy to the appview - hopefully not needed in the future
-	app.add_routes([
-		web.get ("/xrpc/app.bsky.actor.getPreferences", static_appview_proxy),
-		web.post("/xrpc/app.bsky.actor.putPreferences", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.actor.getProfile", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.actor.searchActorsTypeahead", static_appview_proxy),
-
-		web.get ("/xrpc/app.bsky.labeler.getServices", static_appview_proxy),
-
-		web.get ("/xrpc/app.bsky.notification.listNotifications", static_appview_proxy),
-		web.post("/xrpc/app.bsky.notification.updateSeen", static_appview_proxy),
-
-		web.get ("/xrpc/app.bsky.graph.getLists", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.graph.getFollows", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.graph.getFollowers", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.graph.getSuggestedFollowsByActor", static_appview_proxy),
-		web.post("/xrpc/app.bsky.graph.muteActor", static_appview_proxy),
-		web.post("/xrpc/app.bsky.graph.unmuteActor", static_appview_proxy),
-
-		web.get ("/xrpc/app.bsky.feed.getTimeline", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.feed.getAuthorFeed", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.feed.getActorFeeds", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.feed.getFeed", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.feed.getFeedGenerator", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.feed.getFeedGenerators", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.feed.getPostThread", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.feed.getPosts", static_appview_proxy),
-		web.get ("/xrpc/app.bsky.feed.getLikes", static_appview_proxy),
-
-		web.get ("/xrpc/app.bsky.unspecced.getPopularFeedGenerators", static_appview_proxy),
-	])
-	#app.on_response_prepare.append(prepare_cors_headers)
+	app.add_routes(
+		[
+			# web.get ("/xrpc/app.bsky.actor.getPreferences", static_appview_proxy),
+			# web.post("/xrpc/app.bsky.actor.putPreferences", static_appview_proxy),
+			web.get("/xrpc/app.bsky.actor.getProfile", static_appview_proxy),
+			web.get("/xrpc/app.bsky.actor.searchActorsTypeahead", static_appview_proxy),
+			web.get("/xrpc/app.bsky.labeler.getServices", static_appview_proxy),
+			web.get(
+				"/xrpc/app.bsky.notification.listNotifications", static_appview_proxy
+			),
+			web.post("/xrpc/app.bsky.notification.updateSeen", static_appview_proxy),
+			web.get("/xrpc/app.bsky.graph.getLists", static_appview_proxy),
+			web.get("/xrpc/app.bsky.graph.getFollows", static_appview_proxy),
+			web.get("/xrpc/app.bsky.graph.getFollowers", static_appview_proxy),
+			web.get(
+				"/xrpc/app.bsky.graph.getSuggestedFollowsByActor", static_appview_proxy
+			),
+			web.post("/xrpc/app.bsky.graph.muteActor", static_appview_proxy),
+			web.post("/xrpc/app.bsky.graph.unmuteActor", static_appview_proxy),
+			web.get("/xrpc/app.bsky.feed.getTimeline", static_appview_proxy),
+			web.get("/xrpc/app.bsky.feed.getAuthorFeed", static_appview_proxy),
+			web.get("/xrpc/app.bsky.feed.getActorFeeds", static_appview_proxy),
+			web.get("/xrpc/app.bsky.feed.getFeed", static_appview_proxy),
+			web.get("/xrpc/app.bsky.feed.getFeedGenerator", static_appview_proxy),
+			web.get("/xrpc/app.bsky.feed.getFeedGenerators", static_appview_proxy),
+			web.get("/xrpc/app.bsky.feed.getPostThread", static_appview_proxy),
+			web.get("/xrpc/app.bsky.feed.getPosts", static_appview_proxy),
+			web.get("/xrpc/app.bsky.feed.getLikes", static_appview_proxy),
+			web.get(
+				"/xrpc/app.bsky.unspecced.getPopularFeedGenerators",
+				static_appview_proxy,
+			),
+		]
+	)
+	# app.on_response_prepare.append(prepare_cors_headers)
 
 	cors = aiohttp_cors.setup(
 		app,
@@ -277,8 +302,10 @@ def get_db(req: web.Request) -> database.Database:
 	"""
 	return req.app["MILLIPDS_DB"]
 
+
 def get_client(req: web.Request) -> aiohttp.ClientSession:
 	return req.app["MILLIPDS_AIOHTTP_CLIENT"]
+
 
 async def run(db: database.Database, sock_path: Optional[str], host: str, port: int):
 	"""
