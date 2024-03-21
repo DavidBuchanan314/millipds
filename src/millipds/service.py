@@ -88,6 +88,51 @@ async def server_create_session(request: web.Request):
 		}
 	)
 
+def authenticated(handler):
+	def authentication_handler(request: web.Request):
+		# extract the auth token
+		auth = request.headers.get("Authorization")
+		if auth is None:
+			raise web.HTTPUnauthorized(text="authentication required (this may be a bug, I'm erring on the side of caution for now)")
+		if not auth.startswith("Bearer "):
+			raise web.HTTPUnauthorized(text="invalid auth type")
+		token = auth.removeprefix("Bearer ")
+
+		# validate it TODO: this needs rigorous testing, I'm not 100% sure I'm
+		# verifying all the things that need verifying
+		db = get_db(request)
+		try:
+			payload: dict = jwt.decode(
+				jwt=token,
+				key=db.config["jwt_access_secret"],
+				algorithms=["HS256"],
+				audience=db.config["pds_did"],
+				require=["exp", "scope"], # consider iat?
+				strict_aud=True,
+			)
+		except jwt.exceptions.PyJWTError:
+			raise web.HTTPUnauthorized(text="invalid jwt")
+
+		# if we reached this far, the payload must've been signed by us
+		if payload.get("scope") != "com.atproto.access":
+			raise web.HTTPUnauthorized(text="invalid jwt scope")
+		
+		subject: str = payload.get("sub", "")
+		if not subject.startswith("did:"):
+			raise web.HTTPUnauthorized(text="invalid jwt: invalid subject")
+		request["did"] = subject
+		return handler(request)
+	return authentication_handler
+
+
+@routes.get("/xrpc/com.atproto.server.getSession")
+@authenticated
+async def server_get_session(request: web.Request):
+	return web.json_response({
+		"handle": get_db(request).get_account(request["did"])[0],  # ew
+		"did": request["did"]
+	})
+
 
 @routes.get("/xrpc/com.atproto.sync.listRepos")
 async def sync_list_repos(request: web.Request):  # TODO: pagination

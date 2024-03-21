@@ -62,3 +62,21 @@ assert r["did"] == "did:web:alice.test"
 assert r["handle"] == "alice.test"
 assert "accessJwt" in r
 assert "refreshJwt" in r
+
+token = r["accessJwt"]
+authn = {"Authorization": "Bearer " + token}
+
+# good auth
+r = s.get(PDS + "/xrpc/com.atproto.server.getSession", headers=authn)
+print(r.json())
+assert(r.ok)
+
+# bad auth
+r = s.get(PDS + "/xrpc/com.atproto.server.getSession", headers={"Authorization": "Bearer " + token[:-1]})
+print(r.text)
+assert(not r.ok)
+
+# bad auth
+r = s.get(PDS + "/xrpc/com.atproto.server.getSession", headers={"Authorization": "Bearest"})
+print(r.text)
+assert(not r.ok)
