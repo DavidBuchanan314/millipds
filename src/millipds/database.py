@@ -180,15 +180,15 @@ class Database:
 			UserDatabase.init_tables(self.con, did, repo_path)
 		self.con.execute("DETACH spoke")
 
-	def get_account(self, did_or_handle: str) -> Tuple[str, str, str]:
+	def get_account(self, did_or_handle: str) -> Tuple[str, str, str, str]:
 		row = self.con.execute(
-			"SELECT did, handle, pw_hash FROM user WHERE did=? OR handle=?",
+			"SELECT did, handle, pw_hash, signing_key FROM user WHERE did=? OR handle=?",
 			(did_or_handle, did_or_handle),
 		).fetchone()
 		if row is None:
 			raise KeyError("no account found for did")
-		did, handle, pw_hash = row
-		return did, handle, pw_hash
+		did, handle, pw_hash, signing_key = row
+		return did, handle, pw_hash, signing_key
 
 	def list_repos(self) -> List[Tuple[str, CID, str]]:  # TODO: pagination
 		return [

@@ -3,7 +3,7 @@
 Usage:
   millipds init <hostname> [--dev|--sandbox]
   millipds config [--pds_pfx=URL] [--pds_did=DID] [--bsky_appview_pfx=URL] [--bsky_appview_did=DID]
-  millipds account create <did> <handle> [--unsafe_password=PW]
+  millipds account create <did> <handle> [--unsafe_password=PW] [--signing_key=PEM]
   millipds run [--sock_path=PATH] [--listen_host=HOST] [--listen_port=PORT]
   millipds (-h | --help)
   millipds --version
@@ -35,6 +35,7 @@ Account create:
   TODO: consider bring-your-own signing key?
 
   --unsafe_password=PW  Specify password non-iteractively, for use in test scripts etc.
+  --signing_key=PEM     Path to a PEM file
 
 Run:
   Launch the service (in the foreground)
@@ -131,11 +132,16 @@ def main():
 				if getpass("Confirm password: ") != pw:
 					print("error: password mismatch")
 					return
+			pem_path = args["--signing_key"]
+			if pem_path:
+				privkey = crypto.privkey_from_pem(open(pem_path).read())
+			else:
+				privkey = crypto.keygen_p256()
 			db.create_account(
 				did=args["<did>"],
 				handle=args["<handle>"],
 				password=pw,
-				privkey=crypto.keygen_p256(),  # TODO: supply from arg
+				privkey=privkey,  # TODO: supply from arg
 			)
 		else:
 			print("CLI arg parse error?!")

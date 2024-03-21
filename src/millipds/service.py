@@ -6,6 +6,7 @@ import aiohttp_cors
 import time
 import os
 
+import aiohttp
 from aiohttp import web
 import jwt
 
@@ -13,6 +14,23 @@ from . import static_config
 from . import database
 
 routes = web.RouteTableDef()
+
+
+@web.middleware
+async def atproto_service_proxy_middleware(request: web.Request, handler):
+	# TODO: if service proxying header is present, do service proxying!
+	# if request.headers.get("atproto-proxy"):
+	# pass
+
+	# else, normal response
+	return await handler(request)
+
+
+# inject permissive CORS headers unconditionally
+#async def prepare_cors_headers(request, response: web.Response):
+#	response.headers["Access-Control-Allow-Origin"] = "*"
+#	response.headers["Access-Control-Allow-Headers"] = "atproto-accept-labelers,authorization"  # TODO: tighten?
+#	response.headers["Access-Control-Allow-Methods"] = "GET,HEAD,PUT,PATCH,POST,DELETE"
 
 
 @routes.get("/")
@@ -42,16 +60,18 @@ async def server_create_session(request: web.Request):
 	identifier = json.get("identifier")
 	password = json.get("password")
 	if not (isinstance(identifier, str) and isinstance(password, str)):
-		raise web.HTTPBadRequest("invalid identifier or password")
+		raise web.HTTPBadRequest(text="invalid identifier or password")
 
 	# do authentication
 	db = get_db(request)
 	try:
-		did, handle, pw_hash = db.get_account(did_or_handle=identifier)
+		did, handle, pw_hash, _ = db.get_account(did_or_handle=identifier)
 	except KeyError:
-		raise web.HTTPUnauthorized("user not found")
-	if not db.pw_hasher.verify(pw_hash, password):
-		raise web.HTTPUnauthorized("incorrect identifier or password")
+		raise web.HTTPUnauthorized(text="user not found")
+	try:
+		db.pw_hasher.verify(pw_hash, password)
+	except:
+		raise web.HTTPUnauthorized(text="incorrect identifier or password")
 
 	# prepare access tokens
 	unix_seconds_now = int(time.time())
@@ -88,12 +108,15 @@ async def server_create_session(request: web.Request):
 		}
 	)
 
+
 def authenticated(handler):
 	def authentication_handler(request: web.Request):
 		# extract the auth token
 		auth = request.headers.get("Authorization")
 		if auth is None:
-			raise web.HTTPUnauthorized(text="authentication required (this may be a bug, I'm erring on the side of caution for now)")
+			raise web.HTTPUnauthorized(
+				text="authentication required (this may be a bug, I'm erring on the side of caution for now)"
+			)
 		if not auth.startswith("Bearer "):
 			raise web.HTTPUnauthorized(text="invalid auth type")
 		token = auth.removeprefix("Bearer ")
@@ -107,7 +130,7 @@ def authenticated(handler):
 				key=db.config["jwt_access_secret"],
 				algorithms=["HS256"],
 				audience=db.config["pds_did"],
-				require=["exp", "scope"], # consider iat?
+				require=["exp", "scope"],  # consider iat?
 				strict_aud=True,
 			)
 		except jwt.exceptions.PyJWTError:
@@ -116,22 +139,28 @@ def authenticated(handler):
 		# if we reached this far, the payload must've been signed by us
 		if payload.get("scope") != "com.atproto.access":
 			raise web.HTTPUnauthorized(text="invalid jwt scope")
-		
+
 		subject: str = payload.get("sub", "")
 		if not subject.startswith("did:"):
 			raise web.HTTPUnauthorized(text="invalid jwt: invalid subject")
 		request["did"] = subject
 		return handler(request)
+
 	return authentication_handler
 
 
 @routes.get("/xrpc/com.atproto.server.getSession")
 @authenticated
 async def server_get_session(request: web.Request):
-	return web.json_response({
-		"handle": get_db(request).get_account(request["did"])[0],  # ew
-		"did": request["did"]
-	})
+	return web.json_response(
+		{
+			"handle": get_db(request).get_account(request["did"])[0],  # ew
+			"did": request["did"],
+			"email": "nunya@business.invalid",
+			"emailConfirmed": True,
+			"didDoc": {},
+		}
+	)
 
 
 @routes.get("/xrpc/com.atproto.sync.listRepos")
@@ -150,10 +179,82 @@ async def sync_list_repos(request: web.Request):  # TODO: pagination
 	)
 
 
+@authenticated
+async def static_appview_proxy(request: web.Request):
+	db = get_db(request)
+	did, _, _, signing_key = db.get_account(request["did"])
+	authn = {
+		"Authorization": "Bearer "
+		+ jwt.encode(
+			{
+				"iss": did,
+				"aud": db.config["bsky_appview_did"],
+				"exp": int(time.time()) + 60 * 60 * 24,  # 24h
+			},
+			signing_key,
+			algorithm="ES256",
+		)  # TODO: ES256K compat?
+	}  # TODO: cache this!
+	appview_pfx = db.config["bsky_appview_pfx"]
+	if request.method == "GET":
+		async with get_client(request).get(
+			appview_pfx + request.path, params=request.query, headers=authn
+		) as r:
+			body_bytes = await r.read()  # TODO: streaming?
+			return web.Response(
+				body=body_bytes, content_type=r.content_type, status=r.status
+			)  # XXX: is it safe to forward all the headers??? Probably not!
+	elif request.method == "POST":
+		request_body = await request.read()  # TODO: streaming?
+		async with get_client(request).post(
+			appview_pfx + request.path, data=request_body, headers=authn
+		) as r:
+			body_bytes = await r.read()  # TODO: streaming?
+			return web.Response(
+				body=body_bytes, content_type=r.content_type, status=r.status
+			)  # XXX: is it safe to forward all the headers??? Probably not!
+	elif request.method == "PUT":
+		raise NotImplementedError("TODO")
+
+
 def construct_app(routes, db: database.Database) -> web.Application:
-	app = web.Application()
+	app = web.Application(middlewares=[atproto_service_proxy_middleware])
 	app["MILLIPDS_DB"] = db
+	app["MILLIPDS_AIOHTTP_CLIENT"] = aiohttp.ClientSession() # should this be dependency-injected?
 	app.add_routes(routes)
+
+	# list of routes to proxy to the appview - hopefully not needed in the future
+	app.add_routes([
+		web.get ("/xrpc/app.bsky.actor.getPreferences", static_appview_proxy),
+		web.post("/xrpc/app.bsky.actor.putPreferences", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.actor.getProfile", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.actor.searchActorsTypeahead", static_appview_proxy),
+
+		web.get ("/xrpc/app.bsky.labeler.getServices", static_appview_proxy),
+
+		web.get ("/xrpc/app.bsky.notification.listNotifications", static_appview_proxy),
+		web.post("/xrpc/app.bsky.notification.updateSeen", static_appview_proxy),
+
+		web.get ("/xrpc/app.bsky.graph.getLists", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.graph.getFollows", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.graph.getFollowers", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.graph.getSuggestedFollowsByActor", static_appview_proxy),
+		web.post("/xrpc/app.bsky.graph.muteActor", static_appview_proxy),
+		web.post("/xrpc/app.bsky.graph.unmuteActor", static_appview_proxy),
+
+		web.get ("/xrpc/app.bsky.feed.getTimeline", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.feed.getAuthorFeed", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.feed.getActorFeeds", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.feed.getFeed", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.feed.getFeedGenerator", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.feed.getFeedGenerators", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.feed.getPostThread", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.feed.getPosts", static_appview_proxy),
+		web.get ("/xrpc/app.bsky.feed.getLikes", static_appview_proxy),
+
+		web.get ("/xrpc/app.bsky.unspecced.getPopularFeedGenerators", static_appview_proxy),
+	])
+	#app.on_response_prepare.append(prepare_cors_headers)
 
 	cors = aiohttp_cors.setup(
 		app,
@@ -176,6 +277,8 @@ def get_db(req: web.Request) -> database.Database:
 	"""
 	return req.app["MILLIPDS_DB"]
 
+def get_client(req: web.Request) -> aiohttp.ClientSession:
+	return req.app["MILLIPDS_AIOHTTP_CLIENT"]
 
 async def run(db: database.Database, sock_path: Optional[str], host: str, port: int):
 	"""
