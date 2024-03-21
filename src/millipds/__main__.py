@@ -61,16 +61,16 @@ from . import database
 from . import crypto
 
 
-logging.basicConfig(level=logging.DEBUG) # TODO: make this configurable?
+logging.basicConfig(level=logging.DEBUG)  # TODO: make this configurable?
 
 
-"""
-This is the entrypoint for the `millipds` command (declared in project.scripts)
-"""
 def main():
+	"""
+	This is the entrypoint for the `millipds` command (declared in project.scripts)
+	"""
+
 	args = docopt(
-		__doc__,
-		version=f"millipds version {importlib.metadata.version('millipds')}"
+		__doc__, version=f"millipds version {importlib.metadata.version('millipds')}"
 	)
 
 	db = database.Database()
@@ -96,17 +96,17 @@ def main():
 				bsky_appview_pfx="https://api.bsky-sandbox.dev",
 				bsky_appview_did="did:web:api.bsky-sandbox.dev",
 			)
-		else: # "prod" presets
+		else:  # "prod" presets
 			db.update_config(
 				pds_pfx=f'https://{args["<hostname>"]}',
 				pds_did=f'did:web:{args["<hostname>"]}',
 				bsky_appview_pfx="https://api.bsky.app",
 				bsky_appview_did="did:web:api.bsky.app",
 			)
-		assert(db.config_is_initialised())
+		assert db.config_is_initialised()
 		db.print_config()
 		return
-	
+
 	if not db.config_is_initialised():
 		print("Config uninitialised! Try the `init` command")
 		return
@@ -125,7 +125,9 @@ def main():
 			if pw:
 				# rationale: only allow non-iteractive password input from scripts etc.
 				if sys.stdin.buffer.isatty():
-					print("error: --unsafe_password can't be used from an interactive shell")
+					print(
+						"error: --unsafe_password can't be used from an interactive shell"
+					)
 					return
 			else:
 				pw = getpass("Password for new account: ")
@@ -136,18 +138,21 @@ def main():
 				did=args["<did>"],
 				handle=args["<handle>"],
 				password=pw,
-				privkey=crypto.keygen_p256() # TODO: supply from arg
+				privkey=crypto.keygen_p256(),  # TODO: supply from arg
 			)
 		else:
 			print("CLI arg parse error?!")
 	elif args["run"]:
-		asyncio.run(service.run(
-			sock_path=args["--sock_path"],
-			host=args["--listen_host"],
-			port=int(args["--listen_port"])
-		))
+		asyncio.run(
+			service.run(
+				sock_path=args["--sock_path"],
+				host=args["--listen_host"],
+				port=int(args["--listen_port"]),
+			)
+		)
 	else:
 		print("CLI arg parse error?!")
+
 
 """
 This is the entrypoint for python3 -m millipds

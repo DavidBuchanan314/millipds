@@ -8,7 +8,7 @@ HTTP_LOG_FMT = '%{X-Forwarded-For}i %t (%Tf) "%r" %s %b "%{Referer}i" "%{User-Ag
 
 GROUPNAME = "millipds-sock"
 
-MILLIPDS_DB_VERSION = 1 # this gets bumped if we make breaking changes to the db schema
+MILLIPDS_DB_VERSION = 1  # this gets bumped if we make breaking changes to the db schema
 
 DATA_DIR = "./data"
 MAIN_DB_PATH = DATA_DIR + "/millipds.sqlite3"

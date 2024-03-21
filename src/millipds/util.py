@@ -1,10 +1,13 @@
 import os
 import hashlib
 
+
 def mkdirs_for_file(path: str) -> None:
 	os.makedirs(os.path.dirname(path), exist_ok=True)
 
+
 FILANEME_SAFE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
 
 def did_to_safe_filename(did: str) -> str:
 	"""

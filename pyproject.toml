@@ -41,3 +41,6 @@ Issues = "https://github.com/DavidBuchanan314/millipds/issues"
 
 [project.scripts]
 millipds = "millipds.__main__:main"
+
+[tool.ruff.format]
+indent-style = "tab"

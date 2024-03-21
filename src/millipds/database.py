@@ -8,10 +8,9 @@ it anywhere else.
 from typing import Optional, Dict
 from functools import cached_property
 import secrets
-import os
 import logging
 
-from argon2 import PasswordHasher # maybe this should come from .crypto?
+from argon2 import PasswordHasher  # maybe this should come from .crypto?
 import apsw
 import apsw.bestpractice
 
@@ -26,8 +25,9 @@ logger = logging.getLogger(__name__)
 # https://rogerbinns.github.io/apsw/bestpractice.html
 apsw.bestpractice.apply(apsw.bestpractice.recommended)
 
+
 class Database:
-	def __init__(self, path: str=static_config.MAIN_DB_PATH) -> None:
+	def __init__(self, path: str = static_config.MAIN_DB_PATH) -> None:
 		util.mkdirs_for_file(path)
 		self.con = apsw.Connection(path)
 		self.pw_hasher = PasswordHasher()
@@ -36,7 +36,7 @@ class Database:
 			if self.config["db_version"] != static_config.MILLIPDS_DB_VERSION:
 				raise Exception("unrecognised db version (TODO: db migrations?!)")
 
-		except apsw.SQLError as e: # no such table, so lets create it
+		except apsw.SQLError as e:  # no such table, so lets create it
 			if "no such table" not in str(e):
 				raise
 			with self.con:
@@ -64,7 +64,7 @@ class Database:
 				jwt_access_secret
 			) VALUES (?, ?)
 			""",
-			( static_config.MILLIPDS_DB_VERSION, secrets.token_hex() )
+			(static_config.MILLIPDS_DB_VERSION, secrets.token_hex()),
 		)
 
 		self.con.execute(
@@ -92,11 +92,12 @@ class Database:
 			"""
 		)
 
-	def update_config(self,
-		pds_pfx: Optional[str]=None,
-		pds_did: Optional[str]=None,
-		bsky_appview_pfx: Optional[str]=None,
-		bsky_appview_did: Optional[str]=None,
+	def update_config(
+		self,
+		pds_pfx: Optional[str] = None,
+		pds_did: Optional[str] = None,
+		bsky_appview_pfx: Optional[str] = None,
+		bsky_appview_did: Optional[str] = None,
 	):
 		with self.con:
 			if pds_pfx is not None:
@@ -105,17 +106,15 @@ class Database:
 				self.con.execute("UPDATE config SET pds_did=?", (pds_did,))
 			if bsky_appview_pfx is not None:
 				self.con.execute(
-					"UPDATE config SET bsky_appview_pfx=?",
-					(bsky_appview_pfx,)
+					"UPDATE config SET bsky_appview_pfx=?", (bsky_appview_pfx,)
 				)
 			if bsky_appview_did is not None:
 				self.con.execute(
-					"UPDATE config SET bsky_appview_did=?",
-					(bsky_appview_did,)
+					"UPDATE config SET bsky_appview_did=?", (bsky_appview_did,)
 				)
-		
+
 		try:
-			del self.config # invalidate the cached value
+			del self.config  # invalidate the cached value
 		except AttributeError:
 			pass
 
@@ -140,25 +139,26 @@ class Database:
 	def config_is_initialised(self) -> bool:
 		return all(v is not None for v in self.config.values())
 
-	def print_config(self, redact_secrets: bool=True) -> None:
+	def print_config(self, redact_secrets: bool = True) -> None:
 		maxlen = max(map(len, self.config))
 		for k, v in self.config.items():
 			if redact_secrets and "secret" in k:
 				v = "[REDACTED]"
 			print(f"{k:<{maxlen}} : {v!r}")
 
-	def account_create(self,
+	def account_create(
+		self,
 		did: str,
 		handle: str,
 		password: str,
-		privkey: crypto.ec.EllipticCurvePrivateKey
+		privkey: crypto.ec.EllipticCurvePrivateKey,
 	) -> None:
 		pw_hash = self.pw_hasher.hash(password)
 		privkey_pem = crypto.privkey_to_pem(privkey)
-		repo_path = f"{static_config.REPOS_DIR}/{util.did_to_safe_filename(did)}.sqlite3"
-		logger.info(
-			f"creating account for did={did}, handle={handle} at {repo_path}"
+		repo_path = (
+			f"{static_config.REPOS_DIR}/{util.did_to_safe_filename(did)}.sqlite3"
 		)
+		logger.info(f"creating account for did={did}, handle={handle} at {repo_path}")
 		with self.con:
 			self.con.execute(
 				"""
@@ -171,26 +171,26 @@ class Database:
 					signing_key
 				) VALUES (?, ?, ?, ?, ?, ?)
 				""",
-				(did, handle, b"{}", pw_hash, repo_path, privkey_pem)
+				(did, handle, b"{}", pw_hash, repo_path, privkey_pem),
 			)
+			util.mkdirs_for_file(repo_path)
 			UserDatabase.init_tables(self.con, did, repo_path)
 		self.con.execute("DETACH spoke")
 
 
 class UserDBBlockStore(BlockStore):
-	pass # TODO
+	pass  # TODO
 
 
 class UserDatabase:
 	def __init__(self, wcon: apsw.Connection, did: str, path: str) -> None:
-		self.wcon = wcon # writes go via the hub database connection, using ATTACH
+		self.wcon = wcon  # writes go via the hub database connection, using ATTACH
 		self.rcon = apsw.Connection(path, flags=apsw.SQLITE_OPEN_READONLY)
-		
+
 		# TODO: check db version and did match
 
 	@staticmethod
 	def init_tables(wcon: apsw.Connection, did: str, path: str) -> None:
-		util.mkdirs_for_file(path)
 		wcon.execute("ATTACH ? AS spoke", (path,))
 
 		wcon.execute(
@@ -204,7 +204,7 @@ class UserDatabase:
 
 		wcon.execute(
 			"INSERT INTO spoke.repo(db_version, did) VALUES (?, ?)",
-			(static_config.MILLIPDS_DB_VERSION, did)
+			(static_config.MILLIPDS_DB_VERSION, did),
 		)
 
 		# TODO: the other tables
