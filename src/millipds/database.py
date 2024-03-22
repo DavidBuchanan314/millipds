@@ -78,7 +78,8 @@ class Database:
 				repo_path TEXT NOT NULL,
 				signing_key TEXT NOT NULL,
 				head BLOB,
-				rev TEXT
+				rev TEXT,
+				commit_blob BLOB
 			)
 			"""
 		)
@@ -236,7 +237,39 @@ class UserDatabase:
 			(static_config.MILLIPDS_DB_VERSION, did),
 		)
 
-		# TODO: the other tables
+		wcon.execute(
+			"""
+			CREATE TABLE spoke.mst(
+				cid BLOB PRIMARY KEY NOT NULL,
+				since TEXT NOT NULL,
+				value BLOB NOT NULL
+			)
+			"""
+		)
+		wcon.execute("CREATE INDEX spoke.mst_since ON mst(since)")
+
+		wcon.execute(
+			"""
+			CREATE TABLE spoke.record(
+				path TEXT PRIMARY KEY NOT NULL,
+				cid BLOB NOT NULL,
+				since TEXT NOT NULL,
+				value BLOB NOT NULL
+			)
+			"""
+		)
+		wcon.execute("CREATE INDEX spoke.record_since ON record(since)")
+
+		wcon.execute(
+			"""
+			CREATE TABLE spoke.blob(
+				cid BLOB PRIMARY KEY NOT NULL,
+				since TEXT NOT NULL,
+				value BLOB NOT NULL
+			)
+			"""
+		)
+		wcon.execute("CREATE INDEX spoke.blob_since ON blob(since)")
 
 		# nb: caller is responsible for running "DETACH spoke", after the end
 		# of the transaction
