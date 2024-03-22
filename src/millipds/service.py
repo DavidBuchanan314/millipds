@@ -84,12 +84,12 @@ async def server_create_session(request: web.Request):
 	# do authentication
 	db = get_db(request)
 	try:
-		did, handle, pw_hash, _ = db.get_account(did_or_handle=identifier)
+		did, handle = db.verify_account_login(
+			did_or_handle=identifier, password=password
+		)
 	except KeyError:
 		raise web.HTTPUnauthorized(text="user not found")
-	try:
-		db.pw_hasher.verify(pw_hash, password)
-	except:
+	except ValueError:
 		raise web.HTTPUnauthorized(text="incorrect identifier or password")
 
 	# prepare access tokens
@@ -201,12 +201,12 @@ async def sync_list_repos(request: web.Request):  # TODO: pagination
 @authenticated
 async def static_appview_proxy(request: web.Request):
 	db = get_db(request)
-	did, _, _, signing_key = db.get_account(request["did"])
+	signing_key = db.signing_key_pem_by_did(request["did"])
 	authn = {
 		"Authorization": "Bearer "
 		+ jwt.encode(
 			{
-				"iss": did,
+				"iss": request["did"],
 				"aud": db.config["bsky_appview_did"],
 				"exp": int(time.time()) + 60 * 60 * 24,  # 24h
 			},

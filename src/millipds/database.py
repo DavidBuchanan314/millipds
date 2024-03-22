@@ -10,7 +10,7 @@ from functools import cached_property
 import secrets
 import logging
 
-from argon2 import PasswordHasher  # maybe this should come from .crypto?
+import argon2  # maybe this should come from .crypto?
 import apsw
 import apsw.bestpractice
 
@@ -32,7 +32,7 @@ class Database:
 	def __init__(self, path: str = static_config.MAIN_DB_PATH) -> None:
 		util.mkdirs_for_file(path)
 		self.con = apsw.Connection(path)
-		self.pw_hasher = PasswordHasher()
+		self.pw_hasher = argon2.PasswordHasher()
 
 		try:
 			if self.config["db_version"] != static_config.MILLIPDS_DB_VERSION:
@@ -211,20 +211,21 @@ class Database:
 			UserDatabase.init_tables(self.con, did, repo_path, tid)
 		self.con.execute("DETACH spoke")
 
-	def get_account(self, did_or_handle: str) -> Tuple[str, str, str, str]:
+	def verify_account_login(
+		self, did_or_handle: str, password: str
+	) -> Tuple[str, str, str, str]:
 		row = self.con.execute(
-			"SELECT did, handle, pw_hash, signing_key FROM user WHERE did=? OR handle=?",
+			"SELECT did, handle, pw_hash FROM user WHERE did=? OR handle=?",
 			(did_or_handle, did_or_handle),
 		).fetchone()
 		if row is None:
 			raise KeyError("no account found for did")
-		did, handle, pw_hash, signing_key = row
-		return (
-			did,
-			handle,
-			pw_hash,
-			signing_key,
-		)  # this should be a dict at the very least
+		did, handle, pw_hash = row
+		try:
+			self.pw_hasher.verify(pw_hash, password)
+		except argon2.exceptions.VerifyMismatchError:
+			raise ValueError("invalid password")
+		return did, handle
 
 	def did_by_handle(self, handle: str) -> Optional[str]:
 		row = self.con.execute(
@@ -236,6 +237,14 @@ class Database:
 
 	def handle_by_did(self, did: str) -> Optional[str]:
 		row = self.con.execute("SELECT handle FROM user WHERE did=?", (did,)).fetchone()
+		if row is None:
+			return None
+		return row[0]
+
+	def signing_key_pem_by_did(self, did: str) -> Optional[str]:
+		row = self.con.execute(
+			"SELECT signing_key FROM user WHERE did=?", (did,)
+		).fetchone()
 		if row is None:
 			return None
 		return row[0]

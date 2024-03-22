@@ -44,6 +44,7 @@ r = s.post(
 	PDS + "/xrpc/com.atproto.server.createSession",
 	json={"identifier": "alice.test", "password": "alice_pw"},
 )
+print(r.text)
 r = r.json()
 print(r)
 assert r["did"] == "did:web:alice.test"
