@@ -173,9 +173,9 @@ def authenticated(handler):
 async def server_get_session(request: web.Request):
 	return web.json_response(
 		{
-			"handle": get_db(request).get_account(request["did"])[0],  # ew
+			"handle": get_db(request).handle_by_did(request["did"]),  # ew
 			"did": request["did"],
-			"email": "nunya@business.invalid",
+			"email": "nunya@business.invalid",  # this and below are just here for testing lol
 			"emailConfirmed": True,
 			"didDoc": {},
 		}
@@ -222,7 +222,7 @@ async def static_appview_proxy(request: web.Request):
 			body_bytes = await r.read()  # TODO: streaming?
 			return web.Response(
 				body=body_bytes, content_type=r.content_type, status=r.status
-			)  # XXX: is it safe to forward all the headers??? Probably not!
+			)  # XXX: allowlist safe content types!
 	elif request.method == "POST":
 		request_body = await request.read()  # TODO: streaming?
 		async with get_client(request).post(
@@ -231,7 +231,7 @@ async def static_appview_proxy(request: web.Request):
 			body_bytes = await r.read()  # TODO: streaming?
 			return web.Response(
 				body=body_bytes, content_type=r.content_type, status=r.status
-			)  # XXX: is it safe to forward all the headers??? Probably not!
+			)  # XXX: allowlist safe content types!
 	elif request.method == "PUT":
 		raise NotImplementedError("TODO")
 

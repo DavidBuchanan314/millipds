@@ -14,8 +14,9 @@ from argon2 import PasswordHasher  # maybe this should come from .crypto?
 import apsw
 import apsw.bestpractice
 
-from cbrrr import CID
+import cbrrr
 from atmst.blockstore import BlockStore
+from atmst.mst.node import MSTNode
 
 from . import static_config
 from . import util
@@ -38,7 +39,7 @@ class Database:
 				raise Exception("unrecognised db version (TODO: db migrations?!)")
 
 		except apsw.SQLError as e:  # no such table, so lets create it
-			if "no such table" not in str(e):
+			if not "no such table" in str(e):
 				raise
 			with self.con:
 				self._init_central_tables()
@@ -77,9 +78,9 @@ class Database:
 				pw_hash TEXT NOT NULL,
 				repo_path TEXT NOT NULL,
 				signing_key TEXT NOT NULL,
-				head BLOB,
-				rev TEXT,
-				commit_blob BLOB
+				head BLOB NOT NULL,
+				rev TEXT NOT NULL,
+				commit_bytes BLOB NOT NULL
 			)
 			"""
 		)
@@ -163,7 +164,23 @@ class Database:
 			f"{static_config.REPOS_DIR}/{util.did_to_safe_filename(did)}.sqlite3"
 		)
 		logger.info(f"creating account for did={did}, handle={handle} at {repo_path}")
+
+		# create an initial commit for an empty MST, as an atomic transaction
 		with self.con:
+			tid = util.tid_now()
+			empty_mst = MSTNode.empty_root()
+			initial_commit = {
+				"did": did,  # TODO: did normalisation, somewhere?
+				"version": static_config.ATPROTO_REPO_VERSION_3,
+				"data": empty_mst.cid,
+				"rev": tid,
+				"prev": None,
+			}
+			initial_commit["sig"] = crypto.raw_sign(
+				privkey, cbrrr.encode_dag_cbor(initial_commit)
+			)
+			commit_bytes = cbrrr.encode_dag_cbor(initial_commit)
+			commit_cid = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(commit_bytes)
 			self.con.execute(
 				"""
 				INSERT INTO user(
@@ -172,13 +189,26 @@ class Database:
 					prefs,
 					pw_hash,
 					repo_path,
-					signing_key
-				) VALUES (?, ?, ?, ?, ?, ?)
+					signing_key,
+					head,
+					rev,
+					commit_bytes
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 				""",
-				(did, handle, b"{}", pw_hash, repo_path, privkey_pem),
+				(
+					did,
+					handle,
+					b"{}",
+					pw_hash,
+					repo_path,
+					privkey_pem,
+					bytes(commit_cid),
+					tid,
+					commit_bytes,
+				),
 			)
 			util.mkdirs_for_file(repo_path)
-			UserDatabase.init_tables(self.con, did, repo_path)
+			UserDatabase.init_tables(self.con, did, repo_path, tid)
 		self.con.execute("DETACH spoke")
 
 	def get_account(self, did_or_handle: str) -> Tuple[str, str, str, str]:
@@ -189,7 +219,12 @@ class Database:
 		if row is None:
 			raise KeyError("no account found for did")
 		did, handle, pw_hash, signing_key = row
-		return did, handle, pw_hash, signing_key
+		return (
+			did,
+			handle,
+			pw_hash,
+			signing_key,
+		)  # this should be a dict at the very least
 
 	def did_by_handle(self, handle: str) -> Optional[str]:
 		row = self.con.execute(
@@ -199,28 +234,64 @@ class Database:
 			return None
 		return row[0]
 
-	def list_repos(self) -> List[Tuple[str, CID, str]]:  # TODO: pagination
+	def handle_by_did(self, did: str) -> Optional[str]:
+		row = self.con.execute("SELECT handle FROM user WHERE did=?", (did,)).fetchone()
+		if row is None:
+			return None
+		return row[0]
+
+	def list_repos(self) -> List[Tuple[str, cbrrr.CID, str]]:  # TODO: pagination
 		return [
-			(did, CID(head), rev)
+			(did, cbrrr.CID(head), rev)
 			for did, head, rev in self.con.execute(
-				"SELECT did, head, rev FROM user WHERE head IS NOT NULL AND rev IS NOT NULL"
+				"SELECT did, head, rev FROM user"
 			).fetchall()
 		]
 
+	def get_user_db(self, did: str) -> "UserDatabase":
+		row = self.con.execute(
+			"SELECT repo_path FROM user WHERE did=?", (did,)
+		).fetchone()
+		if row is None:
+			raise KeyError("user not found")
+		path = row[0]
+		return UserDatabase(self.con, did, path)
+
 
 class UserDBBlockStore(BlockStore):
-	pass  # TODO
+	"""
+	Adapt the db for consumption by the atmst library
+	"""
+
+	def __init__(self, udb: "UserDatabase") -> None:
+		self.udb = udb
+
+	def get_block(self, key: bytes) -> bytes:
+		row = self.udb.rcon.execute(
+			"SELECT value FROM mst WHERE cid=?", (key,)
+		).fetchone()
+		if row is None:
+			raise KeyError("block not found in db")
+		return row[0]
 
 
 class UserDatabase:
 	def __init__(self, wcon: apsw.Connection, did: str, path: str) -> None:
 		self.wcon = wcon  # writes go via the hub database connection, using ATTACH
+		# we use a separate connection for reads (in theory, for better
+		# concurrent accesses, but uh, we're not doing those yet)
 		self.rcon = apsw.Connection(path, flags=apsw.SQLITE_OPEN_READONLY)
 
-		# TODO: check db version and did match
+		db_version, db_did = self.rcon.execute(
+			"SELECT db_version, did FROM repo"
+		).fetchone()
+		if db_version != static_config.MILLIPDS_DB_VERSION:
+			raise ValueError("unsupported DB version (TODO: migrations?)")
+		if db_did != did:
+			raise ValueError("user db did mismatch")
 
 	@staticmethod
-	def init_tables(wcon: apsw.Connection, did: str, path: str) -> None:
+	def init_tables(wcon: apsw.Connection, did: str, path: str, tid: str) -> None:
 		wcon.execute("ATTACH ? AS spoke", (path,))
 
 		wcon.execute(
@@ -247,6 +318,11 @@ class UserDatabase:
 			"""
 		)
 		wcon.execute("CREATE INDEX spoke.mst_since ON mst(since)")
+		empty_root = MSTNode.empty_root()
+		wcon.execute(
+			"INSERT INTO spoke.mst(cid, since, value) VALUES (?, ?, ?)",
+			(bytes(empty_root.cid), tid, empty_root.serialised),
+		)
 
 		wcon.execute(
 			"""
