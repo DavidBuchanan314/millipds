@@ -5,18 +5,22 @@ Password hashing also happens in here, because it doesn't make much sense to do
 it anywhere else.
 """
 
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, BinaryIO
 from functools import cached_property
 import secrets
 import logging
+import io
 
 import argon2  # maybe this should come from .crypto?
 import apsw
 import apsw.bestpractice
 
 import cbrrr
-from atmst.blockstore import BlockStore
+from atmst.blockstore import BlockStore, OverlayBlockStore, MemoryBlockStore
+from atmst.mst.node_store import NodeStore
+from atmst.mst.node_wrangler import NodeWrangler
 from atmst.mst.node import MSTNode
+from atmst.mst.diff import mst_diff, record_diff
 
 from . import static_config
 from . import util
@@ -258,6 +262,7 @@ class Database:
 		]
 
 	def get_user_db(self, did: str) -> "UserDatabase":
+		# TODO: cache the UserDatabase instance (reuse db connections)
 		row = self.con.execute(
 			"SELECT repo_path FROM user WHERE did=?", (did,)
 		).fetchone()
@@ -287,9 +292,12 @@ class UserDBBlockStore(BlockStore):
 class UserDatabase:
 	def __init__(self, wcon: apsw.Connection, did: str, path: str) -> None:
 		self.wcon = wcon  # writes go via the hub database connection, using ATTACH
+		self.did = did
 		# we use a separate connection for reads (in theory, for better
 		# concurrent accesses, but uh, we're not doing those yet)
-		self.rcon = apsw.Connection(path, flags=apsw.SQLITE_OPEN_READONLY)
+		self.rcon = apsw.Connection(
+			path
+		)  # , flags=apsw.SQLITE_OPEN_READONLY) # looks like being literally read only is incompatible with WAL, but we're readonly in spirit
 
 		db_version, db_did = self.rcon.execute(
 			"SELECT db_version, did FROM repo"
@@ -358,3 +366,90 @@ class UserDatabase:
 
 		# nb: caller is responsible for running "DETACH spoke", after the end
 		# of the transaction
+
+	def get_repo(self, stream: BinaryIO):
+		# TODO: make this async?
+		# TODO: "since"
+		# TODO: there might be some atomicity/consistency issues here!
+
+		head, commit_bytes = self.wcon.execute(
+			"SELECT head, commit_bytes FROM user WHERE did=?", (self.did,)
+		).fetchone()
+		head = cbrrr.CID(head)
+		cw = util.CarWriter(stream, head)
+		cw.write_block(head, commit_bytes)
+
+		for mst_cid, mst_value in self.rcon.execute("SELECT cid, value FROM mst"):
+			cw.write_block(cbrrr.CID(mst_cid), mst_value)
+
+		for record_cid, record_value in self.rcon.execute(
+			"SELECT cid, value FROM record"
+		):
+			cw.write_block(cbrrr.CID(record_cid), record_value)
+
+	def create_record(self, path: str, record):
+		# this'll eventually be an "applywrites", once I refactor.
+		# TODO: make this async?????
+
+		# prepare the new commit
+		bs = OverlayBlockStore(MemoryBlockStore(), UserDBBlockStore(self.rcon))
+		ns = NodeStore(bs)  # TODO: make a NodeStore with global LRU cache?
+		wrangler = NodeWrangler(ns)
+		privkey_pem, prev_head, prev_commit_bytes = self.wcon.execute(
+			"SELECT signing_key, head, commit_bytes FROM user WHERE did=?", (self.did,)
+		)
+		privkey = crypto.privkey_from_pem(privkey_pem)
+		prev_commit = cbrrr.decode_dag_cbor(prev_commit_bytes)
+
+		record_bytes = cbrrr.encode_dag_cbor(record)
+		record_cid = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(record_bytes)
+
+		# wrangle the MST
+		prev_root = prev_commit["data"]
+		new_root = wrangler.put_record(prev_root, path, record_cid)
+		mst_created, mst_deleted = mst_diff(ns, prev_root, new_root)
+		record_deltas = list(record_diff(ns, mst_created, mst_deleted))
+
+		# construct the commit object
+		tid = util.tid_now()
+		commit_obj = {
+			"did": self.did,  # TODO: did normalisation, somewhere?
+			"version": static_config.ATPROTO_REPO_VERSION_3,
+			"data": new_root,
+			"rev": tid,
+			"prev": None,  # deprecated but still required to be present
+		}
+		commit_obj["sig"] = crypto.raw_sign(privkey, cbrrr.encode_dag_cbor(commit_obj))
+		commit_bytes = cbrrr.encode_dag_cbor(commit_obj)
+		commit_cid = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(commit_bytes)
+
+		# gather the MST blocks
+		# TODO: consider being more liberal about which mst blocks are included
+		car = io.BytesIO()
+		cw = util.CarWriter(car, commit_cid)
+		cw.write_block(commit_cid, commit_bytes)
+		for mst_cid in mst_created:
+			cw.write_block(mst_cid, bs.get_block(bytes(mst_cid)))
+		cw.write_block(
+			record_cid, record_bytes
+		)  # TODO: build this alongside apply_writes
+
+		# transaction should probably start here
+		firehose_body = {
+			"ops": [
+				{"cid": record_cid, "path": path, "action": "create"}
+			],  # TODO construct this from record_delta
+			"seq": 0,  # TODO
+			"rev": tid,
+			"since": prev_commit["rev"],
+			"prev": None,
+			"repo": self.did,
+			"time": util.iso_string_now(),
+			"blobs": [],  # TODO!!!
+			"blocks": car.getvalue(),
+			"commit": commit_cid,
+			"rebase": False,  # deprecated but still required
+			"tooBig": False,  # TODO: actually check lol
+		}
+
+		# TODO: draw the rest of the owl

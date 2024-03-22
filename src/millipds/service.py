@@ -4,6 +4,7 @@ import logging
 import asyncio
 import aiohttp_cors
 import time
+import io
 import os
 
 import aiohttp
@@ -196,6 +197,24 @@ async def sync_list_repos(request: web.Request):  # TODO: pagination
 			]
 		}
 	)
+
+
+@routes.get("/xrpc/com.atproto.sync.getRepo")
+async def sync_get_repo(request: web.Request):
+	# TODO: "since"
+	# TODO: make this async/streaming!!! (important!!!)
+	did = request.query.get("did")
+	if not isinstance(did, str):
+		raise web.HTTPBadRequest(text="no did specified")
+	db = get_db(request).get_user_db(did)
+	res = web.StreamResponse()
+	res.content_type = "application/vnd.ipld.car"
+	await res.prepare(request)
+	car = io.BytesIO()
+	db.get_repo(car)
+	await res.write(car.getvalue())  # writing all in one chunk is useless!!!
+	await res.write_eof()
+	return res
 
 
 @authenticated
