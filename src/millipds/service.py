@@ -20,6 +20,8 @@ routes = web.RouteTableDef()
 @web.middleware
 async def atproto_service_proxy_middleware(request: web.Request, handler):
 	# TODO: if service proxying header is present, do service proxying!
+	# https://atproto.com/specs/xrpc#service-proxying
+	# (this implies having a DID resolver!!!) (probably with a cache!)
 	# if request.headers.get("atproto-proxy"):
 	# pass
 
@@ -67,6 +69,10 @@ https://github.com/DavidBuchanan314/millipds"""
 async def actor_get_preferences(request: web.Request):
 	return web.json_response({"preferences": []})  # dummy response
 
+@routes.post("/xrpc/app.bsky.actor.putPreferences")
+async def actor_put_preferences(request: web.Request):
+	# TODO: actually implement this
+	return web.Response()
 
 @routes.get("/xrpc/com.atproto.identity.resolveHandle")
 async def identity_resolve_handle(request: web.Request):
@@ -238,6 +244,9 @@ async def sync_get_repo(request: web.Request):
 
 @authenticated
 async def static_appview_proxy(request: web.Request):
+	lxm = request.path.rpartition("/")[2].partition("?")[0]
+	# TODO: verify valid lexicon method?
+	logging.info(f"proxying lxm {lxm}")
 	db = get_db(request)
 	signing_key = db.signing_key_pem_by_did(request["did"])
 	authn = {
@@ -246,6 +255,7 @@ async def static_appview_proxy(request: web.Request):
 			{
 				"iss": request["did"],
 				"aud": db.config["bsky_appview_did"],
+				"lxm": lxm,
 				"exp": int(time.time()) + 60 * 60 * 24,  # 24h
 			},
 			signing_key,
@@ -282,7 +292,7 @@ def construct_app(routes, db: database.Database) -> web.Application:
 	)  # should this be dependency-injected?
 	app.add_routes(routes)
 
-	# list of routes to proxy to the appview - hopefully not needed in the future
+	# list of routes to proxy to the appview - hopefully not needed in the future (we'll derive the list from lexicons? and/or maybe service-proxying would be used?) https://github.com/bluesky-social/atproto/discussions/2350#discussioncomment-11193778
 	app.add_routes(
 		[
 			# web.get ("/xrpc/app.bsky.actor.getPreferences", static_appview_proxy),
@@ -300,6 +310,7 @@ def construct_app(routes, db: database.Database) -> web.Application:
 			web.get(
 				"/xrpc/app.bsky.graph.getSuggestedFollowsByActor", static_appview_proxy
 			),
+			web.get("/xrpc/app.bsky.graph.getActorStarterPacks", static_appview_proxy),
 			web.post("/xrpc/app.bsky.graph.muteActor", static_appview_proxy),
 			web.post("/xrpc/app.bsky.graph.unmuteActor", static_appview_proxy),
 			web.get("/xrpc/app.bsky.feed.getTimeline", static_appview_proxy),
@@ -316,6 +327,8 @@ def construct_app(routes, db: database.Database) -> web.Application:
 				"/xrpc/app.bsky.unspecced.getPopularFeedGenerators",
 				static_appview_proxy,
 			),
+
+			web.get("/xrpc/chat.bsky.convo.listConvos", static_appview_proxy)
 		]
 	)
 	# app.on_response_prepare.append(prepare_cors_headers)
