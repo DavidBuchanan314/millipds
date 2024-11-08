@@ -333,107 +333,37 @@ class Database:
 			).fetchall()
 		]
 
+	def get_repo(self, did: str, stream: BinaryIO):
+		# TODO: make this async?
+		# TODO: "since"
+
+		with self.con: # make sure we have a consistent view of the repo
+			user_id, head, commit_bytes = self.con.execute(
+				"SELECT id, head, commit_bytes FROM user WHERE did=?",
+				(did,)
+			).fetchone()
+			head = cbrrr.CID(head)
+			cw = util.CarWriter(stream, head)
+			cw.write_block(head, commit_bytes)
+
+			for mst_cid, mst_value in self.con.execute(
+				"SELECT cid, value FROM mst WHERE repo=?",
+				(user_id,)
+			):
+				cw.write_block(cbrrr.CID(mst_cid), mst_value)
+
+			for record_cid, record_value in self.con.execute(
+				"SELECT cid, value FROM record WHERE repo=?",
+				(user_id,)
+			):
+				cw.write_block(cbrrr.CID(record_cid), record_value)
+
 	def get_blockstore(self, did: str) -> "Database":
 		return DBBlockStore(self, did)
 
 
 if 0: # this is dead code now but I'm leaving the WIP commit logic for reference
-	class UserDBBlockStore(BlockStore):
-		"""
-		Adapt the db for consumption by the atmst library
-		"""
-
-		def __init__(self, udb: "UserDatabase") -> None:
-			self.udb = udb
-
-		def get_block(self, key: bytes) -> bytes:
-			row = self.udb.rcon.execute(
-				"SELECT value FROM mst WHERE cid=?", (key,)
-			).fetchone()
-			if row is None:
-				raise KeyError("block not found in db")
-			return row[0]
-
-
 	class UserDatabase:
-		def __init__(self, wcon: apsw.Connection, did: str, path: str) -> None:
-			self.wcon = wcon  # writes go via the hub database connection, using ATTACH
-			self.did = did
-			self.path = path
-			# we use a separate connection for reads (in theory, for better
-			# concurrent accesses, but uh, we're not doing those yet)
-			self.rcon = apsw.Connection(
-				path
-			)  # , flags=apsw.SQLITE_OPEN_READONLY) # looks like being literally read only is incompatible with WAL, but we're readonly in spirit
-
-			db_version, db_did = self.rcon.execute(
-				"SELECT db_version, did FROM repo"
-			).fetchone()
-			if db_version != static_config.MILLIPDS_DB_VERSION:
-				raise ValueError("unsupported DB version (TODO: migrations?)")
-			if db_did != did:
-				raise ValueError("user db did mismatch")
-
-		@staticmethod
-		def init_tables(wcon: apsw.Connection, did: str, path: str, tid: str) -> None:
-			wcon.execute("ATTACH ? AS spoke", (path,))
-
-			wcon.execute(
-				"""
-				CREATE TABLE spoke.repo(
-					db_version INTEGER NOT NULL,
-					did TEXT NOT NULL
-				)
-				"""
-			)
-
-			wcon.execute(
-				"INSERT INTO spoke.repo(db_version, did) VALUES (?, ?)",
-				(static_config.MILLIPDS_DB_VERSION, did),
-			)
-
-			wcon.execute(
-				"""
-				CREATE TABLE spoke.mst(
-					cid BLOB PRIMARY KEY NOT NULL,
-					since TEXT NOT NULL,
-					value BLOB NOT NULL
-				)
-				"""
-			)
-			wcon.execute("CREATE INDEX spoke.mst_since ON mst(since)")
-			empty_root = MSTNode.empty_root()
-			wcon.execute(
-				"INSERT INTO spoke.mst(cid, since, value) VALUES (?, ?, ?)",
-				(bytes(empty_root.cid), tid, empty_root.serialised),
-			)
-
-			wcon.execute(
-				"""
-				CREATE TABLE spoke.record(
-					path TEXT PRIMARY KEY NOT NULL,
-					cid BLOB NOT NULL,
-					since TEXT NOT NULL,
-					value BLOB NOT NULL
-				)
-				"""
-			)
-			wcon.execute("CREATE INDEX spoke.record_since ON record(since)")
-
-			wcon.execute(
-				"""
-				CREATE TABLE spoke.blob(
-					cid BLOB PRIMARY KEY NOT NULL,
-					since TEXT NOT NULL,
-					value BLOB NOT NULL
-				)
-				"""
-			)
-			wcon.execute("CREATE INDEX spoke.blob_since ON blob(since)")
-
-			# nb: caller is responsible for running "DETACH spoke", after the end
-			# of the transaction
-
 		def get_repo(self, stream: BinaryIO):
 			# TODO: make this async?
 			# TODO: "since"

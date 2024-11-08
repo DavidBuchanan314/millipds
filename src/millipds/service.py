@@ -37,9 +37,28 @@ async def atproto_service_proxy_middleware(request: web.Request, handler):
 @routes.get("/")
 async def hello(request: web.Request):
 	version = importlib.metadata.version("millipds")
-	msg = f"""Hello! This is an ATProto PDS instance, running millipds v{version}
+	msg = f"""
+                          ,dPYb, ,dPYb,                           8I
+                          IP'`Yb IP'`Yb                           8I
+                     gg   I8  8I I8  8I  gg                       8I
+                     ""   I8  8' I8  8'  ""                       8I
+  ,ggg,,ggg,,ggg,    gg   I8 dP  I8 dP   gg   gg,gggg,      ,gggg,8I     ,gg,
+ ,8" "8P" "8P" "8,   88   I8dP   I8dP    88   I8P"  "Yb    dP"  "Y8I   ,8'8,
+ I8   8I   8I   8I   88   I8P    I8P     88   I8'    ,8i  i8'    ,8I  ,8'  Yb
+,dP   8I   8I   Yb,_,88,_,d8b,_ ,d8b,_ _,88,_,I8 _  ,d8' ,d8,   ,d8b,,8'_   8)
+8P'   8I   8I   `Y88P""Y88P'"Y888P'"Y888P""Y8PI8 YY88888PP"Y8888P"`Y8P' "YY8P8P
+                                              I8
+                                              I8
+                                              I8
+                                              I8
+                                              I8
+                                              I8
+
+
+Hello! This is an ATProto PDS instance, running millipds v{version}
 
 https://github.com/DavidBuchanan314/millipds"""
+
 	return web.Response(text=msg)
 
 
@@ -206,12 +225,12 @@ async def sync_get_repo(request: web.Request):
 	did = request.query.get("did")
 	if not isinstance(did, str):
 		raise web.HTTPBadRequest(text="no did specified")
-	db = get_db(request).get_user_db(did)
+	db = get_db(request)
 	res = web.StreamResponse()
 	res.content_type = "application/vnd.ipld.car"
 	await res.prepare(request)
 	car = io.BytesIO()
-	db.get_repo(car)
+	db.get_repo(did, car)
 	await res.write(car.getvalue())  # writing all in one chunk is useless!!!
 	await res.write_eof()
 	return res
@@ -337,8 +356,10 @@ async def run(db: database.Database, sock_path: Optional[str], host: str, port: 
 	await runner.setup()
 
 	if sock_path is None:
+		logging.info(f"listening on http://{host}:{port}")
 		site = web.TCPSite(runner, host=host, port=port)
 	else:
+		logging.info(f"listening on {sock_path}")
 		site = web.UnixSite(runner, path=sock_path)
 
 	await site.start()

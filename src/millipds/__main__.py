@@ -141,7 +141,7 @@ def main():
 				did=args["<did>"],
 				handle=args["<handle>"],
 				password=pw,
-				privkey=privkey,  # TODO: supply from arg
+				privkey=privkey,
 			)
 		else:
 			print("CLI arg parse error?!")
