@@ -31,6 +31,27 @@ logger = logging.getLogger(__name__)
 # https://rogerbinns.github.io/apsw/bestpractice.html
 apsw.bestpractice.apply(apsw.bestpractice.recommended)
 
+class DBBlockStore(BlockStore):
+	"""
+	Adapt the db for consumption by the atmst library
+	"""
+
+	def __init__(self, db: "Database", repo: str) -> None:
+		self.db = db
+		# TODO: implement and use db instance method!
+		self.user_id = self.db.con.execute("SELECT id FROM user WHERE did=?", (repo,)).fetchone()
+		if self.user_id is None:
+			raise KeyError("repo not found in db")
+
+	def get_block(self, key: bytes) -> bytes:
+		# TODO: implement and use db instance method!
+		row = self.db.con.execute(
+			"SELECT value FROM mst WHERE repo=? AND cid=?", (self.user_id, key)
+		).fetchone()
+		if row is None:
+			raise KeyError("block not found in db")
+		return row[0]
+
 
 class Database:
 	def __init__(self, path: str = static_config.MAIN_DB_PATH) -> None:
@@ -76,11 +97,11 @@ class Database:
 		self.con.execute(
 			"""
 			CREATE TABLE user(
-				did TEXT PRIMARY KEY NOT NULL,
+				id INTEGER PRIMARY KEY NOT NULL,
+				did TEXT NOT NULL,
 				handle TEXT NOT NULL,
 				prefs BLOB NOT NULL,
 				pw_hash TEXT NOT NULL,
-				repo_path TEXT NOT NULL,
 				signing_key TEXT NOT NULL,
 				head BLOB NOT NULL,
 				rev TEXT NOT NULL,
@@ -89,6 +110,7 @@ class Database:
 			"""
 		)
 
+		self.con.execute("CREATE UNIQUE INDEX user_by_did ON user(did)")
 		self.con.execute("CREATE UNIQUE INDEX user_by_handle ON user(handle)")
 
 		self.con.execute(
@@ -100,6 +122,55 @@ class Database:
 			)
 			"""
 		)
+
+		# repo storage stuff
+		self.con.execute(
+			"""
+			CREATE TABLE mst(
+				repo INTEGER NOT NULL,
+				cid BLOB NOT NULL,
+				since TEXT NOT NULL,
+				value BLOB NOT NULL,
+				FOREIGN KEY (repo) REFERENCES user(id),
+				PRIMARY KEY (repo, cid)
+			)
+			"""
+		)
+		self.con.execute("CREATE INDEX mst_since ON mst(since)")
+
+		self.con.execute(
+			"""
+			CREATE TABLE record(
+				repo INTEGER NOT NULL,
+				path TEXT NOT NULL,
+				cid BLOB NOT NULL,
+				since TEXT NOT NULL,
+				value BLOB NOT NULL,
+				FOREIGN KEY (repo) REFERENCES user(id),
+				PRIMARY KEY (repo, path)
+			)
+			"""
+		)
+		self.con.execute("CREATE INDEX record_since ON record(since)")
+
+		# nb: blobs are partitioned per-repo
+		# TODO: think carefully about refcount/since interaction?
+		# TODO: when should blob GC happen? after each commit?
+		self.con.execute(
+			"""
+			CREATE TABLE blob(
+				repo INTEGER NOT NULL,
+				cid BLOB NOT NULL,
+				refcount INTEGER NOT NULL,
+				since TEXT NOT NULL,
+				value BLOB NOT NULL,
+				FOREIGN KEY (repo) REFERENCES user(id),
+				PRIMARY KEY (repo, cid)
+			)
+			"""
+		)
+		self.con.execute("CREATE INDEX blob_cangc ON blob(refcount, refcount = 0)") # dunno how useful this is
+		self.con.execute("CREATE INDEX blob_since ON blob(since)")
 
 	def update_config(
 		self,
@@ -165,10 +236,7 @@ class Database:
 	) -> None:
 		pw_hash = self.pw_hasher.hash(password)
 		privkey_pem = crypto.privkey_to_pem(privkey)
-		repo_path = (
-			f"{static_config.REPOS_DIR}/{util.did_to_safe_filename(did)}.sqlite3"
-		)
-		logger.info(f"creating account for did={did}, handle={handle} at {repo_path}")
+		logger.info(f"creating account for did={did}, handle={handle}")
 
 		# create an initial commit for an empty MST, as an atomic transaction
 		with self.con:
@@ -193,28 +261,31 @@ class Database:
 					handle,
 					prefs,
 					pw_hash,
-					repo_path,
 					signing_key,
 					head,
 					rev,
 					commit_bytes
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 				""",
 				(
 					did,
 					handle,
 					b"{}",
 					pw_hash,
-					repo_path,
 					privkey_pem,
 					bytes(commit_cid),
 					tid,
 					commit_bytes,
 				),
 			)
-			util.mkdirs_for_file(repo_path)
-			UserDatabase.init_tables(self.con, did, repo_path, tid)
-		self.con.execute("DETACH spoke")
+			user_id = self.con.last_insert_rowid()
+			self.con.execute(
+				"INSERT INTO mst(repo, cid, since, value) VALUES (?, ?, ?, ?)",
+				(user_id, bytes(empty_mst.cid), tid, empty_mst.serialised),
+			)
+			#util.mkdirs_for_file(repo_path)
+			#UserDatabase.init_tables(self.con, did, repo_path, tid)
+		#self.con.execute("DETACH spoke")
 
 	def verify_account_login(
 		self, did_or_handle: str, password: str
@@ -262,215 +333,209 @@ class Database:
 			).fetchall()
 		]
 
-	def get_user_db(self, did: str) -> "UserDatabase":
-		# TODO: cache the UserDatabase instance (reuse db connections)
-		row = self.con.execute(
-			"SELECT repo_path FROM user WHERE did=?", (did,)
-		).fetchone()
-		if row is None:
-			raise KeyError("user not found")
-		path = row[0]
-		return UserDatabase(self.con, did, path)
+	def get_blockstore(self, did: str) -> "Database":
+		return DBBlockStore(self, did)
 
 
-class UserDBBlockStore(BlockStore):
-	"""
-	Adapt the db for consumption by the atmst library
-	"""
+if 0: # this is dead code now but I'm leaving the WIP commit logic for reference
+	class UserDBBlockStore(BlockStore):
+		"""
+		Adapt the db for consumption by the atmst library
+		"""
 
-	def __init__(self, udb: "UserDatabase") -> None:
-		self.udb = udb
+		def __init__(self, udb: "UserDatabase") -> None:
+			self.udb = udb
 
-	def get_block(self, key: bytes) -> bytes:
-		row = self.udb.rcon.execute(
-			"SELECT value FROM mst WHERE cid=?", (key,)
-		).fetchone()
-		if row is None:
-			raise KeyError("block not found in db")
-		return row[0]
+		def get_block(self, key: bytes) -> bytes:
+			row = self.udb.rcon.execute(
+				"SELECT value FROM mst WHERE cid=?", (key,)
+			).fetchone()
+			if row is None:
+				raise KeyError("block not found in db")
+			return row[0]
 
 
-class UserDatabase:
-	def __init__(self, wcon: apsw.Connection, did: str, path: str) -> None:
-		self.wcon = wcon  # writes go via the hub database connection, using ATTACH
-		self.did = did
-		self.path = path
-		# we use a separate connection for reads (in theory, for better
-		# concurrent accesses, but uh, we're not doing those yet)
-		self.rcon = apsw.Connection(
-			path
-		)  # , flags=apsw.SQLITE_OPEN_READONLY) # looks like being literally read only is incompatible with WAL, but we're readonly in spirit
+	class UserDatabase:
+		def __init__(self, wcon: apsw.Connection, did: str, path: str) -> None:
+			self.wcon = wcon  # writes go via the hub database connection, using ATTACH
+			self.did = did
+			self.path = path
+			# we use a separate connection for reads (in theory, for better
+			# concurrent accesses, but uh, we're not doing those yet)
+			self.rcon = apsw.Connection(
+				path
+			)  # , flags=apsw.SQLITE_OPEN_READONLY) # looks like being literally read only is incompatible with WAL, but we're readonly in spirit
 
-		db_version, db_did = self.rcon.execute(
-			"SELECT db_version, did FROM repo"
-		).fetchone()
-		if db_version != static_config.MILLIPDS_DB_VERSION:
-			raise ValueError("unsupported DB version (TODO: migrations?)")
-		if db_did != did:
-			raise ValueError("user db did mismatch")
+			db_version, db_did = self.rcon.execute(
+				"SELECT db_version, did FROM repo"
+			).fetchone()
+			if db_version != static_config.MILLIPDS_DB_VERSION:
+				raise ValueError("unsupported DB version (TODO: migrations?)")
+			if db_did != did:
+				raise ValueError("user db did mismatch")
 
-	@staticmethod
-	def init_tables(wcon: apsw.Connection, did: str, path: str, tid: str) -> None:
-		wcon.execute("ATTACH ? AS spoke", (path,))
+		@staticmethod
+		def init_tables(wcon: apsw.Connection, did: str, path: str, tid: str) -> None:
+			wcon.execute("ATTACH ? AS spoke", (path,))
 
-		wcon.execute(
-			"""
-			CREATE TABLE spoke.repo(
-				db_version INTEGER NOT NULL,
-				did TEXT NOT NULL
+			wcon.execute(
+				"""
+				CREATE TABLE spoke.repo(
+					db_version INTEGER NOT NULL,
+					did TEXT NOT NULL
+				)
+				"""
 			)
-			"""
-		)
 
-		wcon.execute(
-			"INSERT INTO spoke.repo(db_version, did) VALUES (?, ?)",
-			(static_config.MILLIPDS_DB_VERSION, did),
-		)
-
-		wcon.execute(
-			"""
-			CREATE TABLE spoke.mst(
-				cid BLOB PRIMARY KEY NOT NULL,
-				since TEXT NOT NULL,
-				value BLOB NOT NULL
+			wcon.execute(
+				"INSERT INTO spoke.repo(db_version, did) VALUES (?, ?)",
+				(static_config.MILLIPDS_DB_VERSION, did),
 			)
-			"""
-		)
-		wcon.execute("CREATE INDEX spoke.mst_since ON mst(since)")
-		empty_root = MSTNode.empty_root()
-		wcon.execute(
-			"INSERT INTO spoke.mst(cid, since, value) VALUES (?, ?, ?)",
-			(bytes(empty_root.cid), tid, empty_root.serialised),
-		)
 
-		wcon.execute(
-			"""
-			CREATE TABLE spoke.record(
-				path TEXT PRIMARY KEY NOT NULL,
-				cid BLOB NOT NULL,
-				since TEXT NOT NULL,
-				value BLOB NOT NULL
+			wcon.execute(
+				"""
+				CREATE TABLE spoke.mst(
+					cid BLOB PRIMARY KEY NOT NULL,
+					since TEXT NOT NULL,
+					value BLOB NOT NULL
+				)
+				"""
 			)
-			"""
-		)
-		wcon.execute("CREATE INDEX spoke.record_since ON record(since)")
-
-		wcon.execute(
-			"""
-			CREATE TABLE spoke.blob(
-				cid BLOB PRIMARY KEY NOT NULL,
-				since TEXT NOT NULL,
-				value BLOB NOT NULL
+			wcon.execute("CREATE INDEX spoke.mst_since ON mst(since)")
+			empty_root = MSTNode.empty_root()
+			wcon.execute(
+				"INSERT INTO spoke.mst(cid, since, value) VALUES (?, ?, ?)",
+				(bytes(empty_root.cid), tid, empty_root.serialised),
 			)
-			"""
-		)
-		wcon.execute("CREATE INDEX spoke.blob_since ON blob(since)")
 
-		# nb: caller is responsible for running "DETACH spoke", after the end
-		# of the transaction
+			wcon.execute(
+				"""
+				CREATE TABLE spoke.record(
+					path TEXT PRIMARY KEY NOT NULL,
+					cid BLOB NOT NULL,
+					since TEXT NOT NULL,
+					value BLOB NOT NULL
+				)
+				"""
+			)
+			wcon.execute("CREATE INDEX spoke.record_since ON record(since)")
 
-	def get_repo(self, stream: BinaryIO):
-		# TODO: make this async?
-		# TODO: "since"
-		# TODO: there might be some atomicity/consistency issues here!
+			wcon.execute(
+				"""
+				CREATE TABLE spoke.blob(
+					cid BLOB PRIMARY KEY NOT NULL,
+					since TEXT NOT NULL,
+					value BLOB NOT NULL
+				)
+				"""
+			)
+			wcon.execute("CREATE INDEX spoke.blob_since ON blob(since)")
 
-		head, commit_bytes = self.wcon.execute(
-			"SELECT head, commit_bytes FROM user WHERE did=?", (self.did,)
-		).fetchone()
-		head = cbrrr.CID(head)
-		cw = util.CarWriter(stream, head)
-		cw.write_block(head, commit_bytes)
+			# nb: caller is responsible for running "DETACH spoke", after the end
+			# of the transaction
 
-		for mst_cid, mst_value in self.rcon.execute("SELECT cid, value FROM mst"):
-			cw.write_block(cbrrr.CID(mst_cid), mst_value)
+		def get_repo(self, stream: BinaryIO):
+			# TODO: make this async?
+			# TODO: "since"
+			# TODO: there might be some atomicity/consistency issues here!
 
-		for record_cid, record_value in self.rcon.execute(
-			"SELECT cid, value FROM record"
-		):
-			cw.write_block(cbrrr.CID(record_cid), record_value)
+			head, commit_bytes = self.wcon.execute(
+				"SELECT head, commit_bytes FROM user WHERE did=?", (self.did,)
+			).fetchone()
+			head = cbrrr.CID(head)
+			cw = util.CarWriter(stream, head)
+			cw.write_block(head, commit_bytes)
 
-	def create_record(self, path: str, record):
-		# this'll eventually be an "applywrites", once I refactor.
-		# TODO: make this async?????
+			for mst_cid, mst_value in self.rcon.execute("SELECT cid, value FROM mst"):
+				cw.write_block(cbrrr.CID(mst_cid), mst_value)
 
-		# prepare the new commit
-		bs = OverlayBlockStore(MemoryBlockStore(), UserDBBlockStore(self.rcon))
-		ns = NodeStore(bs)  # TODO: make a NodeStore with global LRU cache?
-		wrangler = NodeWrangler(ns)
-		privkey_pem, prev_head, prev_commit_bytes = self.wcon.execute(
-			"SELECT signing_key, head, commit_bytes FROM user WHERE did=?", (self.did,)
-		)
-		privkey = crypto.privkey_from_pem(privkey_pem)
-		prev_commit = cbrrr.decode_dag_cbor(prev_commit_bytes)
+			for record_cid, record_value in self.rcon.execute(
+				"SELECT cid, value FROM record"
+			):
+				cw.write_block(cbrrr.CID(record_cid), record_value)
 
-		record_bytes = cbrrr.encode_dag_cbor(record)
-		record_cid = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(record_bytes)
+		def create_record(self, path: str, record):
+			# this'll eventually be an "applywrites", once I refactor.
+			# TODO: make this async????? (nahhhh)
 
-		# wrangle the MST
-		prev_root = prev_commit["data"]
-		new_root = wrangler.put_record(prev_root, path, record_cid)
-		mst_created, mst_deleted = mst_diff(ns, prev_root, new_root)
-		record_deltas = list(record_diff(ns, mst_created, mst_deleted))
+			# prepare the new commit
+			bs = OverlayBlockStore(MemoryBlockStore(), UserDBBlockStore(self.rcon))
+			ns = NodeStore(bs)  # TODO: make a NodeStore with global LRU cache?
+			wrangler = NodeWrangler(ns)
+			privkey_pem, prev_head, prev_commit_bytes = self.wcon.execute(
+				"SELECT signing_key, head, commit_bytes FROM user WHERE did=?", (self.did,)
+			)
+			privkey = crypto.privkey_from_pem(privkey_pem)
+			prev_commit = cbrrr.decode_dag_cbor(prev_commit_bytes)
 
-		# construct the commit object
-		tid = util.tid_now()
-		commit_obj = {
-			"did": self.did,  # TODO: did normalisation, somewhere?
-			"version": static_config.ATPROTO_REPO_VERSION_3,
-			"data": new_root,
-			"rev": tid,
-			"prev": None,  # deprecated but still required to be present
-		}
-		commit_obj["sig"] = crypto.raw_sign(privkey, cbrrr.encode_dag_cbor(commit_obj))
-		commit_bytes = cbrrr.encode_dag_cbor(commit_obj)
-		commit_cid = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(commit_bytes)
+			record_bytes = cbrrr.encode_dag_cbor(record)
+			record_cid = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(record_bytes)
 
-		# gather the MST blocks
-		# TODO: consider being more liberal about which mst blocks are included
-		car = io.BytesIO()
-		cw = util.CarWriter(car, commit_cid)
-		cw.write_block(commit_cid, commit_bytes)
-		for mst_cid in mst_created:
-			cw.write_block(mst_cid, bs.get_block(bytes(mst_cid)))
-		cw.write_block(
-			record_cid, record_bytes
-		)  # TODO: build this alongside apply_writes
+			# wrangle the MST
+			prev_root = prev_commit["data"]
+			new_root = wrangler.put_record(prev_root, path, record_cid)
+			mst_created, mst_deleted = mst_diff(ns, prev_root, new_root)
+			record_deltas = list(record_diff(ns, mst_created, mst_deleted))
 
-		# transaction should probably start here
-		firehose_body = {
-			"ops": [
-				{"cid": record_cid, "path": path, "action": "create"}
-			],  # TODO construct this from record_delta
-			"seq": 0,  # TODO
-			"rev": tid,
-			"since": prev_commit["rev"],
-			"prev": None,
-			"repo": self.did,
-			"time": util.iso_string_now(),
-			"blobs": [],  # TODO!!!
-			"blocks": car.getvalue(),
-			"commit": commit_cid,
-			"rebase": False,  # deprecated but still required
-			"tooBig": False,  # TODO: actually check lol
-		}
+			# construct the commit object
+			tid = util.tid_now()
+			commit_obj = {
+				"did": self.did,  # TODO: did normalisation, somewhere?
+				"version": static_config.ATPROTO_REPO_VERSION_3,
+				"data": new_root,
+				"rev": tid,
+				"prev": None,  # deprecated but still required to be present
+			}
+			commit_obj["sig"] = crypto.raw_sign(privkey, cbrrr.encode_dag_cbor(commit_obj))
+			commit_bytes = cbrrr.encode_dag_cbor(commit_obj)
+			commit_cid = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(commit_bytes)
 
-		# TODO: draw the rest of the owl
-		try:
-			with self.wcon: # transaction for write
-				self.wcon.execute("ATTACH ? AS spoke", (self.path,))
+			# gather the MST blocks
+			# TODO: consider being more liberal about which mst blocks are included
+			car = io.BytesIO()
+			cw = util.CarWriter(car, commit_cid)
+			cw.write_block(commit_cid, commit_bytes)
+			for mst_cid in mst_created:
+				cw.write_block(mst_cid, bs.get_block(bytes(mst_cid)))
+			cw.write_block(
+				record_cid, record_bytes
+			)  # TODO: build this alongside apply_writes
 
-				self.wcon.executemany("INSERT INTO spoke.mst(cid, since, value) VALUES (?, ?, ?)", [
-					(bytes(cid), tid, bs.get_block(cid))
-					for cid in mst_created
-				])
+			# transaction should probably start here
+			firehose_body = {
+				"ops": [
+					{"cid": record_cid, "path": path, "action": "create"}
+				],  # TODO construct this from record_delta
+				"seq": 0,  # TODO
+				"rev": tid,
+				"since": prev_commit["rev"],
+				"prev": None,
+				"repo": self.did,
+				"time": util.iso_string_now(),
+				"blobs": [],  # TODO!!!
+				"blocks": car.getvalue(),
+				"commit": commit_cid,
+				"rebase": False,  # deprecated but still required
+				"tooBig": False,  # TODO: actually check lol
+			}
 
-				self.wcon.executemany("DELETE FROM spoke.mst WHERE cid=?", [
-					(bytes(cid),)
-					for cid in mst_deleted
-				])
+			# TODO: draw the rest of the owl
+			try:
+				with self.wcon: # transaction for write
+					self.wcon.execute("ATTACH ? AS spoke", (self.path,))
 
-				self.wcon.execute("INSERT INTO spoke.record(path, cid, since, value) VALUES (?, ?, ?, ?)", (
-					path, record_cid, tid, record_bytes
-				))
-		finally:
-			self.wcon.execute("DETACH spoke")
+					self.wcon.executemany("INSERT INTO spoke.mst(cid, since, value) VALUES (?, ?, ?)", [
+						(bytes(cid), tid, bs.get_block(cid))
+						for cid in mst_created
+					])
+
+					self.wcon.executemany("DELETE FROM spoke.mst WHERE cid=?", [
+						(bytes(cid),)
+						for cid in mst_deleted
+					])
+
+					self.wcon.execute("INSERT INTO spoke.record(path, cid, since, value) VALUES (?, ?, ?, ?)", (
+						path, record_cid, tid, record_bytes
+					))
+			finally:
+				self.wcon.execute("DETACH spoke")
