@@ -174,11 +174,11 @@ def authenticated(handler):
 async def server_get_session(request: web.Request):
 	return web.json_response(
 		{
-			"handle": get_db(request).handle_by_did(request["did"]),  # ew
+			"handle": get_db(request).handle_by_did(request["did"]),
 			"did": request["did"],
-			"email": "nunya@business.invalid",  # this and below are just here for testing lol
-			"emailConfirmed": True,
-			"didDoc": {},
+			#"email": "nunya@business.invalid",  # this and below are just here for testing lol
+			#"emailConfirmed": True,
+			#"didDoc": {},
 		}
 	)
 
@@ -292,6 +292,7 @@ def construct_app(routes, db: database.Database) -> web.Application:
 			web.get("/xrpc/app.bsky.feed.getPostThread", static_appview_proxy),
 			web.get("/xrpc/app.bsky.feed.getPosts", static_appview_proxy),
 			web.get("/xrpc/app.bsky.feed.getLikes", static_appview_proxy),
+			web.get("/xrpc/app.bsky.feed.getActorLikes", static_appview_proxy),
 			web.get(
 				"/xrpc/app.bsky.unspecced.getPopularFeedGenerators",
 				static_appview_proxy,
@@ -351,11 +352,11 @@ async def run(db: database.Database, sock_path: Optional[str], host: str, port: 
 			sock_gid = grp.getgrnam(static_config.GROUPNAME).gr_gid
 			os.chown(sock_path, os.geteuid(), sock_gid)
 		except KeyError:
-			logging.warn(
+			logging.warning(
 				f"Failed to set socket group - group {static_config.GROUPNAME!r} not found."
 			)
 		except PermissionError:
-			logging.warn(
+			logging.warning(
 				f"Failed to set socket group - are you a member of the {static_config.GROUPNAME!r} group?"
 			)
 

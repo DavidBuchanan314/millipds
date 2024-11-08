@@ -143,6 +143,7 @@ class Database:
 		).fetchone()
 
 		# TODO: consider using a properly typed dataclass rather than a dict
+		# see also https://docs.python.org/3/library/typing.html#typing.TypedDict
 		return dict(zip(config_fields, cfg))
 
 	def config_is_initialised(self) -> bool:
@@ -293,6 +294,7 @@ class UserDatabase:
 	def __init__(self, wcon: apsw.Connection, did: str, path: str) -> None:
 		self.wcon = wcon  # writes go via the hub database connection, using ATTACH
 		self.did = did
+		self.path = path
 		# we use a separate connection for reads (in theory, for better
 		# concurrent accesses, but uh, we're not doing those yet)
 		self.rcon = apsw.Connection(
@@ -453,3 +455,22 @@ class UserDatabase:
 		}
 
 		# TODO: draw the rest of the owl
+		try:
+			with self.wcon: # transaction for write
+				self.wcon.execute("ATTACH ? AS spoke", (self.path,))
+
+				self.wcon.executemany("INSERT INTO spoke.mst(cid, since, value) VALUES (?, ?, ?)", [
+					(bytes(cid), tid, bs.get_block(cid))
+					for cid in mst_created
+				])
+
+				self.wcon.executemany("DELETE FROM spoke.mst WHERE cid=?", [
+					(bytes(cid),)
+					for cid in mst_deleted
+				])
+
+				self.wcon.execute("INSERT INTO spoke.record(path, cid, since, value) VALUES (?, ?, ?, ?)", (
+					path, record_cid, tid, record_bytes
+				))
+		finally:
+			self.wcon.execute("DETACH spoke")
