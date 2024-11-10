@@ -13,6 +13,9 @@ import jwt
 
 from . import static_config
 from . import database
+from . import repo_ops
+
+logger = logging.getLogger(__name__)
 
 routes = web.RouteTableDef()
 
@@ -207,6 +210,13 @@ async def server_get_session(request: web.Request):
 		}
 	)
 
+@routes.post("/xrpc/com.atproto.repo.applyWrites")
+@authenticated
+async def repo_apply_writes(request: web.Request):
+	req = await request.json()
+	repo_ops.apply_writes(get_db(request), req["repo"], req["writes"])
+	return web.json_response({}) # TODO
+
 
 @routes.get("/xrpc/com.atproto.sync.listRepos")
 async def sync_list_repos(request: web.Request):  # TODO: pagination
@@ -246,7 +256,7 @@ async def sync_get_repo(request: web.Request):
 async def static_appview_proxy(request: web.Request):
 	lxm = request.path.rpartition("/")[2].partition("?")[0]
 	# TODO: verify valid lexicon method?
-	logging.info(f"proxying lxm {lxm}")
+	logger.info(f"proxying lxm {lxm}")
 	db = get_db(request)
 	signing_key = db.signing_key_pem_by_did(request["did"])
 	authn = {
@@ -369,10 +379,10 @@ async def run(db: database.Database, sock_path: Optional[str], host: str, port: 
 	await runner.setup()
 
 	if sock_path is None:
-		logging.info(f"listening on http://{host}:{port}")
+		logger.info(f"listening on http://{host}:{port}")
 		site = web.TCPSite(runner, host=host, port=port)
 	else:
-		logging.info(f"listening on {sock_path}")
+		logger.info(f"listening on {sock_path}")
 		site = web.UnixSite(runner, path=sock_path)
 
 	await site.start()
@@ -386,11 +396,11 @@ async def run(db: database.Database, sock_path: Optional[str], host: str, port: 
 			sock_gid = grp.getgrnam(static_config.GROUPNAME).gr_gid
 			os.chown(sock_path, os.geteuid(), sock_gid)
 		except KeyError:
-			logging.warning(
+			logger.warning(
 				f"Failed to set socket group - group {static_config.GROUPNAME!r} not found."
 			)
 		except PermissionError:
-			logging.warning(
+			logger.warning(
 				f"Failed to set socket group - are you a member of the {static_config.GROUPNAME!r} group?"
 			)
 

@@ -39,9 +39,7 @@ class DBBlockStore(BlockStore):
 	def __init__(self, db: "Database", repo: str) -> None:
 		self.db = db
 		# TODO: implement and use db instance method!
-		self.user_id = self.db.con.execute("SELECT id FROM user WHERE did=?", (repo,)).fetchone()
-		if self.user_id is None:
-			raise KeyError("repo not found in db")
+		self.user_id = self.db.con.execute("SELECT id FROM user WHERE did=?", (repo,)).fetchone()[0]
 
 	def get_block(self, key: bytes) -> bytes:
 		# TODO: implement and use db instance method!
@@ -51,6 +49,12 @@ class DBBlockStore(BlockStore):
 		if row is None:
 			raise KeyError("block not found in db")
 		return row[0]
+
+	def del_block(self, key: bytes) -> None:
+		raise NotImplementedError("TODO?")
+	
+	def put_block(self, key: bytes, value: bytes) -> None:
+		raise NotImplementedError("TODO?")
 
 
 class Database:
@@ -169,7 +173,7 @@ class Database:
 			)
 			"""
 		)
-		self.con.execute("CREATE INDEX blob_cangc ON blob(refcount, refcount = 0)") # dunno how useful this is
+		self.con.execute("CREATE INDEX blob_isrefd ON blob(refcount, refcount > 0)") # dunno how useful this is
 		self.con.execute("CREATE INDEX blob_since ON blob(since)")
 
 	def update_config(
@@ -336,6 +340,7 @@ class Database:
 	def get_repo(self, did: str, stream: BinaryIO):
 		# TODO: make this async?
 		# TODO: "since"
+		# TODO: maybe use a brand new read-only db connection?
 
 		with self.con: # make sure we have a consistent view of the repo
 			user_id, head, commit_bytes = self.con.execute(

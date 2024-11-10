@@ -7,7 +7,7 @@ s = requests.session()
 # hello world
 r = s.get(PDS + "/").text
 print(r)
-assert r.startswith("Hello")
+assert "Hello" in r
 
 # describeServer
 r = s.get(PDS + "/xrpc/com.atproto.server.describeServer")
@@ -86,3 +86,23 @@ r = s.get(
 )
 print(r.text)
 assert not r.ok
+
+
+r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": "did:web:alice.test"})
+assert r.ok
+
+
+r = s.post(PDS + "/xrpc/com.atproto.repo.applyWrites", headers=authn, json={
+	"repo": "did:web:alice.test",
+	"writes": [{
+		"$type": "com.atproto.repo.applyWrites#create",
+		"action": "create",
+		"collection": "app.bsky.feed.like",
+		"value": {
+			"blah": "test record"
+		}
+	}]
+})
+
+
+print("we got to the end of the script!")

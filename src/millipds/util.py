@@ -2,7 +2,8 @@ import os
 import time
 import hashlib
 import datetime
-from typing import BinaryIO
+import itertools
+from typing import BinaryIO, Iterator
 
 import cbrrr
 from atmst.blockstore.car_file import encode_varint
@@ -54,6 +55,24 @@ def iso_string_now():
 		.isoformat(timespec="milliseconds")
 		+ "Z"
 	)
+
+
+def deep_iter(obj: cbrrr.DagCborTypes) -> Iterator[cbrrr.DagCborTypes]:
+	sentinel = object()
+	# "stack" will consist of recursively chained iterators
+	stack = iter([obj, sentinel])
+	while (item := next(stack)) is not sentinel:
+		yield item
+		match item:
+			case dict(): stack = itertools.chain(item.values(), stack)
+			case list(): stack = itertools.chain(item, stack)
+
+
+def enumerate_blobs(obj: cbrrr.DagCborTypes) -> Iterator[cbrrr.CID]:
+	for item in deep_iter(obj):
+		if type(item) is cbrrr.CID:
+			if item.is_cidv1_raw_sha256_32(): # XXX: will need updating if more CID types are accepted in future
+				yield item
 
 
 class CarWriter:
