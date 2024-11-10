@@ -59,8 +59,9 @@ class DBBlockStore(BlockStore):
 
 class Database:
 	def __init__(self, path: str = static_config.MAIN_DB_PATH) -> None:
+		self.path = path
 		util.mkdirs_for_file(path)
-		self.con = apsw.Connection(path)
+		self.con = self.new_con()
 		self.pw_hasher = argon2.PasswordHasher()
 
 		try:
@@ -72,6 +73,19 @@ class Database:
 				raise
 			with self.con:
 				self._init_central_tables()
+
+	def new_con(self):
+		"""
+		https://rogerbinns.github.io/apsw/cursor.html
+		"Cursors on the same Connection are not isolated from each other.
+		Anything done on one cursor is immediately visible to all other Cursors
+		on the same connection. This still applies if you start transactions.
+		Connections are isolated from each other with cursors on other
+		connections not seeing changes until they are committed."
+
+		therefore we frequently spawn new connections when we need an isolated cursor
+		"""
+		return apsw.Connection(self.path)
 
 	def _init_central_tables(self):
 		logger.info("initing central tables")
@@ -340,10 +354,10 @@ class Database:
 	def get_repo(self, did: str, stream: BinaryIO):
 		# TODO: make this async?
 		# TODO: "since"
-		# TODO: maybe use a brand new read-only db connection?
 
-		with self.con: # make sure we have a consistent view of the repo
-			user_id, head, commit_bytes = self.con.execute(
+		con = self.new_con() # TODO: readonly
+		with con: # make sure we have a consistent view of the repo
+			user_id, head, commit_bytes = con.execute(
 				"SELECT id, head, commit_bytes FROM user WHERE did=?",
 				(did,)
 			).fetchone()
@@ -351,13 +365,13 @@ class Database:
 			cw = util.CarWriter(stream, head)
 			cw.write_block(head, commit_bytes)
 
-			for mst_cid, mst_value in self.con.execute(
+			for mst_cid, mst_value in con.execute(
 				"SELECT cid, value FROM mst WHERE repo=?",
 				(user_id,)
 			):
 				cw.write_block(cbrrr.CID(mst_cid), mst_value)
 
-			for record_cid, record_value in self.con.execute(
+			for record_cid, record_value in con.execute(
 				"SELECT cid, value FROM record WHERE repo=?",
 				(user_id,)
 			):
