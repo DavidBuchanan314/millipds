@@ -92,19 +92,21 @@ r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": "did:web:alice.
 assert r.ok
 
 
-r = s.post(PDS + "/xrpc/com.atproto.repo.applyWrites", headers=authn, json={
-	"repo": "did:web:alice.test",
-	"writes": [{
-		"$type": "com.atproto.repo.applyWrites#create",
-		"action": "create",
-		"collection": "app.bsky.feed.like",
-		"value": {
-			"blah": "test record"
-		}
-	}]
-})
-print(r.json())
-assert r.ok
+for i in range(1000):
+	r = s.post(PDS + "/xrpc/com.atproto.repo.applyWrites", headers=authn, json={
+		"repo": "did:web:alice.test",
+		"writes": [{
+			"$type": "com.atproto.repo.applyWrites#create",
+			"action": "create",
+			"collection": "app.bsky.feed.like",
+			"rkey": f"{i}-{j}",
+			"value": {
+				"blah": "test record"
+			}
+		} for j in range(10)]
+	})
+	print(r.json())
+	assert r.ok
 
 
 print("we got to the end of the script!")

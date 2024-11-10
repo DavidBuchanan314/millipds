@@ -6,7 +6,7 @@ Theory: all MST-wrangling should happen in here, but all SQL happens in database
 
 import io
 from typing import List, TypedDict, Literal, NotRequired
-from .database import Database
+from .database import Database, DBBlockStore
 from . import util
 from . import crypto
 
@@ -33,7 +33,7 @@ WriteOp = TypedDict("WriteOp", {
 def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 	con = db.new_con()
 	with con: # one big transaction (we could perhaps work in two phases, prepare (via read-only conn) then commit?)
-		db_bs = db.get_blockstore(repo)
+		db_bs = DBBlockStore(con, repo)
 		mem_bs = MemoryBlockStore()
 		bs = OverlayBlockStore(mem_bs, db_bs)
 		ns = NodeStore(bs)
@@ -85,17 +85,7 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 		# step 1: diff the mst
 		created, deleted = mst_diff(ns, prev_commit_root, next_commit_root)
 
-		# step 2: persist MST changes
-		con.executemany(
-			"DELETE FROM mst WHERE repo=? AND cid=?",
-			[(user_id, cid) for cid in map(bytes, deleted)]
-		)
-		con.executemany(
-			"INSERT INTO mst (repo, cid, since, value) VALUES (?, ?, ?, ?)",
-			[(user_id, cid, tid_now, bs.get_block(cid)) for cid in map(bytes, created)]
-		)
-
-		# step 3: persist record changes
+		# step 2: persist record changes
 		# TODO: also build ops list for firehose
 		new_record_cids = []
 		firehose_ops = []
@@ -134,6 +124,16 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 				)
 			else:
 				raise Exception("unreachable")
+		
+		# step 3: persist MST changes (we have to do this now because record_diff might need to read some blocks)
+		con.executemany(
+			"DELETE FROM mst WHERE repo=? AND cid=?",
+			[(user_id, cid) for cid in map(bytes, deleted)]
+		)
+		con.executemany(
+			"INSERT INTO mst (repo, cid, since, value) VALUES (?, ?, ?, ?)",
+			[(user_id, cid, tid_now, bs.get_block(cid)) for cid in map(bytes, created)]
+		)
 		
 		# prepare the signed commit object
 		commit_obj = {

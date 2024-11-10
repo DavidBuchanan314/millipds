@@ -36,14 +36,12 @@ class DBBlockStore(BlockStore):
 	Adapt the db for consumption by the atmst library
 	"""
 
-	def __init__(self, db: "Database", repo: str) -> None:
+	def __init__(self, db: apsw.Connection, repo: str) -> None:
 		self.db = db
-		# TODO: implement and use db instance method!
-		self.user_id = self.db.con.execute("SELECT id FROM user WHERE did=?", (repo,)).fetchone()[0]
+		self.user_id = self.db.execute("SELECT id FROM user WHERE did=?", (repo,)).fetchone()[0]
 
 	def get_block(self, key: bytes) -> bytes:
-		# TODO: implement and use db instance method!
-		row = self.db.con.execute(
+		row = self.db.execute(
 			"SELECT value FROM mst WHERE repo=? AND cid=?", (self.user_id, key)
 		).fetchone()
 		if row is None:
