@@ -47,6 +47,7 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 		# step 0: apply writes into the MST
 		# TODO: should I forbid touching the same record more than once?
 		prev_root = prev_commit_root
+		results = [] # for result of applyWrites
 		for op in writes:
 			optype = op["$type"]
 			# TODO: rkey validation!
@@ -59,11 +60,19 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 				value_cbor = cbrrr.encode_dag_cbor(op["value"], atjson_mode=True)
 				value_cid = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(value_cbor)
 				record_cbors[value_cid] = value_cbor
-				next_root = wrangler.put_record(prev_root, path, value_cid)				
+				next_root = wrangler.put_record(prev_root, path, value_cid)
+				results.append({
+					"$type": optype + "Result",
+					"uri": f"at://{repo}/{path}",
+					"cid": value_cid.encode()
+				})
 			elif optype == "com.atproto.repo.applyWrites#delete":
 				next_root = wrangler.del_record(prev_root, op["collection"] + "/" + op["rkey"])
 				if prev_root == next_root:
 					raise Exception("no such record") # TODO: better error signalling!!!
+				results.append({
+					"$type": "com.atproto.repo.applyWrites#deleteResult"
+				})
 			else:
 				raise ValueError("invalid applyWrites type")
 			prev_root = next_root
@@ -129,5 +138,14 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 		# TODO: create firehose event
 		# TODO: persist firehose event
 
+		applywrites_res = {
+			"commit": {
+				"cid": commit_cid.encode(),
+				"rev": tid_now
+			},
+			"results": results
+		}
+
+		return applywrites_res, "TODO"
 
 

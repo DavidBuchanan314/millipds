@@ -214,8 +214,10 @@ async def server_get_session(request: web.Request):
 @authenticated
 async def repo_apply_writes(request: web.Request):
 	req = await request.json()
-	repo_ops.apply_writes(get_db(request), req["repo"], req["writes"])
-	return web.json_response({}) # TODO
+	if req["repo"] != request["did"]:
+		raise web.HTTPUnauthorized(text="not authed for that repo")
+	res, firehose_res = repo_ops.apply_writes(get_db(request), request["did"], req["writes"])
+	return web.json_response(res) # TODO
 
 
 @routes.get("/xrpc/com.atproto.sync.listRepos")

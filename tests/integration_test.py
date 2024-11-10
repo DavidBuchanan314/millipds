@@ -103,6 +103,8 @@ r = s.post(PDS + "/xrpc/com.atproto.repo.applyWrites", headers=authn, json={
 		}
 	}]
 })
+print(r.json())
+assert r.ok
 
 
 print("we got to the end of the script!")
