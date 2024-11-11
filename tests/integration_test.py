@@ -92,7 +92,7 @@ r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": "did:web:alice.
 assert r.ok
 
 
-for i in range(1000):
+for i in range(100):
 	r = s.post(PDS + "/xrpc/com.atproto.repo.applyWrites", headers=authn, json={
 		"repo": "did:web:alice.test",
 		"writes": [{
@@ -108,5 +108,9 @@ for i in range(1000):
 	print(r.json())
 	assert r.ok
 
+
+r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": "did:web:alice.test"})
+assert r.ok
+open("repo.car", "wb").write(r.content)
 
 print("we got to the end of the script!")

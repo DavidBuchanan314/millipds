@@ -27,6 +27,8 @@ WriteOp = TypedDict("WriteOp", {
 	"$type": Literal["com.atproto.repo.applyWrites#create", "com.atproto.repo.applyWrites#update", "com.atproto.repo.applyWrites#delete"],
 	"collection": str,
 	"rkey": NotRequired[str],
+	"validate": NotRequired[bool],
+	"swapRecord": NotRequired[str],
 	"value": dict
 })
 

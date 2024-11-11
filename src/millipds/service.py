@@ -191,7 +191,7 @@ def authenticated(handler):
 		subject: str = payload.get("sub", "")
 		if not subject.startswith("did:"):
 			raise web.HTTPUnauthorized(text="invalid jwt: invalid subject")
-		request["did"] = subject
+		request["authed_did"] = subject
 		return handler(request)
 
 	return authentication_handler
@@ -202,23 +202,97 @@ def authenticated(handler):
 async def server_get_session(request: web.Request):
 	return web.json_response(
 		{
-			"handle": get_db(request).handle_by_did(request["did"]),
-			"did": request["did"],
+			"handle": get_db(request).handle_by_did(request["authed_did"]),
+			"did": request["authed_did"],
 			#"email": "nunya@business.invalid",  # this and below are just here for testing lol
 			#"emailConfirmed": True,
 			#"didDoc": {},
 		}
 	)
 
+async def apply_writes_and_emit_firehose(request: web.Request, req_json: dict) -> dict:
+	if req_json["repo"] != request["authed_did"]:
+		raise web.HTTPUnauthorized(text="not authed for that repo")
+	res, firehose_res = repo_ops.apply_writes(get_db(request), request["authed_did"], req_json["writes"])
+	# TODO: emit firehose!!
+	return res
+
+
 @routes.post("/xrpc/com.atproto.repo.applyWrites")
 @authenticated
 async def repo_apply_writes(request: web.Request):
-	req = await request.json()
-	if req["repo"] != request["did"]:
-		raise web.HTTPUnauthorized(text="not authed for that repo")
-	res, firehose_res = repo_ops.apply_writes(get_db(request), request["did"], req["writes"])
-	return web.json_response(res) # TODO
+	return web.json_response(await apply_writes_and_emit_firehose(request, await request.json()))
 
+@routes.post("/xrpc/com.atproto.repo.createRecord")
+@authenticated
+async def repo_apply_writes(request: web.Request):
+	orig: dict = await request.json()
+	req = {
+		"repo": orig["repo"],
+		"validate": orig.get("validate"),
+		"swapCommit": orig.get("swapCommit"),
+		"writes": [{
+			"$type": "com.atproto.repo.applyWrites#create",
+			"collection": orig["collection"],
+			"rkey": orig.get("rkey"),
+			"validate": orig.get("validate"),
+			"value": orig["record"]
+		}]
+	}
+	res = await apply_writes_and_emit_firehose(request, req)
+	return web.json_response({
+		"commit": res["commit"],
+		"uri": res["results"][0]["uri"],
+		"cid": res["results"][0]["cid"],
+		"validationStatus": res["results"][0]["validationStatus"]
+	})
+
+@routes.post("/xrpc/com.atproto.repo.putRecord")
+@authenticated
+async def repo_apply_writes(request: web.Request):
+	orig: dict = await request.json()
+	req = {
+		"repo": orig["repo"],
+		"validate": orig.get("validate"),
+		"swapCommit": orig.get("swapCommit"),
+		"writes": [{
+			"$type": "com.atproto.repo.applyWrites#update",
+			"collection": orig["collection"],
+			"rkey": orig["rkey"],
+			"validate": orig.get("validate"),
+			"swapRecord": orig.get("swapRecord"),
+			"value": orig["record"]
+		}]
+	}
+	res = await apply_writes_and_emit_firehose(request, req)
+	return web.json_response({
+		"commit": res["commit"],
+		"uri": res["results"][0]["uri"],
+		"cid": res["results"][0]["cid"],
+		"validationStatus": res["results"][0]["validationStatus"]
+	})
+
+@routes.post("/xrpc/com.atproto.repo.deleteRecord")
+@authenticated
+async def repo_apply_writes(request: web.Request):
+	orig: dict = await request.json()
+	req = {
+		"repo": orig["repo"],
+		"validate": orig.get("validate"),
+		"swapCommit": orig.get("swapCommit"),
+		"writes": [{
+			"$type": "com.atproto.repo.applyWrites#delete",
+			"collection": orig["collection"],
+			"rkey": orig["rkey"],
+			"validate": orig.get("validate"),
+			"swapRecord": orig.get("swapRecord"),
+			"value": orig["record"]
+		}]
+	}
+	res = await apply_writes_and_emit_firehose(request, req)
+	return web.json_response({
+		"commit": res["commit"]
+	})
 
 @routes.get("/xrpc/com.atproto.sync.listRepos")
 async def sync_list_repos(request: web.Request):  # TODO: pagination
@@ -260,12 +334,12 @@ async def static_appview_proxy(request: web.Request):
 	# TODO: verify valid lexicon method?
 	logger.info(f"proxying lxm {lxm}")
 	db = get_db(request)
-	signing_key = db.signing_key_pem_by_did(request["did"])
+	signing_key = db.signing_key_pem_by_did(request["authed_did"])
 	authn = {
 		"Authorization": "Bearer "
 		+ jwt.encode(
 			{
-				"iss": request["did"],
+				"iss": request["authed_did"],
 				"aud": db.config["bsky_appview_did"],
 				"lxm": lxm,
 				"exp": int(time.time()) + 60 * 60 * 24,  # 24h
