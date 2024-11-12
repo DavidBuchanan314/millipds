@@ -71,6 +71,13 @@ https://github.com/DavidBuchanan314/millipds"""
 	return web.Response(text=msg)
 
 
+# not a spec'd endpoint, but the reference impl has this too
+@routes.get("/xrpc/_health")
+async def health(request: web.Request):
+	return web.json_response({
+		"version": importlib.metadata.version("millipds")
+	})
+
 # we should not be implementing bsky-specific logic here!
 @routes.get("/xrpc/app.bsky.actor.getPreferences")
 async def actor_get_preferences(request: web.Request):

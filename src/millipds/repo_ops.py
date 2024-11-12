@@ -94,7 +94,7 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 		created, deleted = mst_diff(ns, prev_commit_root, next_commit_root)
 
 		# step 2: persist record changes
-		# TODO: also build ops list for firehose
+		# (and also build ops list for firehose)
 		new_record_cids = []
 		firehose_ops = []
 		for delta in record_diff(ns, created, deleted):
