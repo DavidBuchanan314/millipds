@@ -11,6 +11,8 @@ I'm never planning on replacing sqlite with anything else, so the tight coupling
 
 import io
 from typing import List, TypedDict, Literal, NotRequired
+import apsw
+
 from .database import Database, DBBlockStore
 from . import util
 from . import crypto
@@ -105,9 +107,11 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 					"path": delta.key,
 					"action": "create"
 				})
+				new_value = record_cbors[delta.later_value]
+				blob_incref_all(con, user_id, new_value, tid_now)
 				con.execute(
 					"INSERT INTO record (repo, path, cid, since, value) VALUES (?, ?, ?, ?, ?)",
-					(user_id, delta.key, bytes(delta.later_value), tid_now, record_cbors[delta.later_value])
+					(user_id, delta.key, bytes(delta.later_value), tid_now, new_value)
 				)
 			elif delta.delta_type == DeltaType.UPDATED:
 				new_record_cids.append(delta.later_value)
@@ -116,9 +120,12 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 					"path": delta.key,
 					"action": "update"
 				})
+				new_value = record_cbors[delta.later_value]
+				blob_incref_all(con, user_id, new_value, tid_now)
+				# TODO: decref old value!!!!
 				con.execute(
 					"UPDATE record SET cid=?, since=?, value=? WHERE repo=? AND path=?",
-					(bytes(delta.later_value), tid_now, record_cbors[delta.later_value], user_id, delta.key)
+					(bytes(delta.later_value), tid_now, new_value, user_id, delta.key)
 				)
 			elif delta.delta_type == DeltaType.DELETED:
 				firehose_ops.append({
@@ -126,6 +133,7 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 					"path": delta.key,
 					"action": "delete"
 				})
+				# TODO: decref!!!
 				con.execute(
 					"DELETE FROM WHERE repo=? AND path=?",
 					(user_id, delta.key)
@@ -207,3 +215,25 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 		return applywrites_res, firehose_bytes
 
 
+def blob_incref_all(con: apsw.Connection, user_id: int, record_bytes: bytes, tid: str):
+	for ref in util.enumerate_blob_cids(cbrrr.decode_dag_cbor(record_bytes)):
+		blob_incref(con, user_id, ref, tid)
+
+def blob_incref(con: apsw.Connection, user_id: int, ref: cbrrr.CID, tid: str):
+	# also set `since` if this is the first time a blob has ever been ref'd
+	con.execute(
+		"UPDATE blob SET refcount=refcount+1, since=IFNULL(since, ?) WHERE blob.repo=? AND blob.cid=?",
+		(tid, user_id, bytes(ref))
+	)
+	changes = con.changes()  # number of updated rows
+
+	if changes == 1:
+		return  # happy path
+
+	if changes == 0:
+		raise ValueError("tried to incref a blob that doesn't exist")
+	
+	# changes > 1
+	raise ValueError("welp, that's not supposed to happen") # should be impossible given UNIQUE constraints
+
+# TODO: blob decref!!!!!

@@ -68,11 +68,15 @@ def deep_iter(obj: cbrrr.DagCborTypes) -> Iterator[cbrrr.DagCborTypes]:
 			case list(): stack = itertools.chain(item, stack)
 
 
-def enumerate_blobs(obj: cbrrr.DagCborTypes) -> Iterator[cbrrr.CID]:
+# expects obj to be in "native" format, not "atjson"
+def enumerate_blob_cids(obj: cbrrr.DagCborTypes) -> Iterator[cbrrr.CID]:
 	for item in deep_iter(obj):
-		if type(item) is cbrrr.CID:
-			if item.is_cidv1_raw_sha256_32(): # XXX: will need updating if more CID types are accepted in future
-				yield item
+		if type(item) is dict and item.get("$type") == "blob":
+			ref = item.get("ref")
+			if type(ref) is not cbrrr.CID:
+				continue
+			if ref.is_cidv1_raw_sha256_32(): # XXX: will need updating if more CID types are accepted in future
+				yield ref
 
 
 class CarWriter:
