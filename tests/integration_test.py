@@ -1,4 +1,5 @@
 import requests
+import os
 
 PDS = "http://localhost:8123"
 
@@ -92,7 +93,7 @@ r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": "did:web:alice.
 assert r.ok
 
 
-for i in range(100):
+for i in range(10):
 	r = s.post(PDS + "/xrpc/com.atproto.repo.applyWrites", headers=authn, json={
 		"repo": "did:web:alice.test",
 		"writes": [{
@@ -107,6 +108,12 @@ for i in range(100):
 	})
 	print(r.json())
 	assert r.ok
+
+
+blob = os.urandom(0x100000)
+r = s.post(PDS + "/xrpc/com.atproto.repo.uploadBlob", data=blob, headers=authn|{"content-type": "blah"})
+print(r.json())
+assert r.ok
 
 
 r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": "did:web:alice.test"})

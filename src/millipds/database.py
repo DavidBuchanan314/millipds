@@ -110,6 +110,7 @@ class Database:
 			(static_config.MILLIPDS_DB_VERSION, secrets.token_hex()),
 		)
 
+		# TODO: head and rev are redundant, technically (rev contained within commit_bytes)
 		self.con.execute(
 			"""
 			CREATE TABLE user(
@@ -172,21 +173,36 @@ class Database:
 		# nb: blobs are partitioned per-repo
 		# TODO: think carefully about refcount/since interaction?
 		# TODO: when should blob GC happen? after each commit?
+		# NOTE: blobs have null cid when they're midway through being uploaded
+		# and they have null "since" when they haven't been committed yet
+		# TODO: store length explicitly?
 		self.con.execute(
 			"""
 			CREATE TABLE blob(
+				id INTEGER PRIMARY KEY NOT NULL,
 				repo INTEGER NOT NULL,
-				cid BLOB NOT NULL,
+				cid BLOB,
 				refcount INTEGER NOT NULL,
-				since TEXT NOT NULL,
-				value BLOB NOT NULL,
-				FOREIGN KEY (repo) REFERENCES user(id),
-				PRIMARY KEY (repo, cid)
+				since TEXT,
+				FOREIGN KEY (repo) REFERENCES user(id)
 			)
 			"""
 		)
 		self.con.execute("CREATE INDEX blob_isrefd ON blob(refcount, refcount > 0)") # dunno how useful this is
+		self.con.execute("CREATE UNIQUE INDEX blob_repo_cid ON blob(repo, cid)")
 		self.con.execute("CREATE INDEX blob_since ON blob(since)")
+
+		self.con.execute(
+			"""
+			CREATE TABLE blob_part(
+				blob INTEGER NOT NULL,
+				idx INTEGER NOT NULL,
+				data BLOB NOT NULL,
+				PRIMARY KEY (blob, idx),
+				FOREIGN KEY (blob) REFERENCES blob(id)
+			)
+			"""
+		)
 
 	def update_config(
 		self,

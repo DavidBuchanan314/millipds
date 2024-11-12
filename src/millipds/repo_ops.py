@@ -2,6 +2,11 @@
 Theory: all MST-wrangling should happen in here, but all SQL happens in database.py
 
 (in the interrim we'll do raw SQL in here, and refactor later...)
+
+actuallyyyyyyy I think I changed my mind. given the sheer volume of SQL involved, and
+its tight coupling to the actual commit logic, I think it makes the most sense to have it right here.
+
+I'm never planning on replacing sqlite with anything else, so the tight coupling is fine.
 """
 
 import io
@@ -34,6 +39,7 @@ WriteOp = TypedDict("WriteOp", {
 
 def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 	con = db.new_con()
+	# hm, if everything is synchronous, it's actually safe to reuse the existing db con
 	with con: # one big transaction (we could perhaps work in two phases, prepare (via read-only conn) then commit?)
 		db_bs = DBBlockStore(con, repo)
 		mem_bs = MemoryBlockStore()

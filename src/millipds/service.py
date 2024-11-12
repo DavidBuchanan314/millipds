@@ -6,10 +6,13 @@ import aiohttp_cors
 import time
 import io
 import os
+import hashlib
 
 import aiohttp
 from aiohttp import web
 import jwt
+
+import cbrrr
 
 from . import static_config
 from . import database
@@ -204,8 +207,8 @@ async def server_get_session(request: web.Request):
 		{
 			"handle": get_db(request).handle_by_did(request["authed_did"]),
 			"did": request["authed_did"],
-			#"email": "nunya@business.invalid",  # this and below are just here for testing lol
-			#"emailConfirmed": True,
+			"email": "tfw_no@email.invalid",  # this and below are just here for testing lol
+			"emailConfirmed": True,
 			#"didDoc": {},
 		}
 	)
@@ -225,7 +228,7 @@ async def repo_apply_writes(request: web.Request):
 
 @routes.post("/xrpc/com.atproto.repo.createRecord")
 @authenticated
-async def repo_apply_writes(request: web.Request):
+async def repo_create_record(request: web.Request):
 	orig: dict = await request.json()
 	req = {
 		"repo": orig["repo"],
@@ -249,7 +252,7 @@ async def repo_apply_writes(request: web.Request):
 
 @routes.post("/xrpc/com.atproto.repo.putRecord")
 @authenticated
-async def repo_apply_writes(request: web.Request):
+async def repo_put_record(request: web.Request):
 	orig: dict = await request.json()
 	req = {
 		"repo": orig["repo"],
@@ -274,7 +277,7 @@ async def repo_apply_writes(request: web.Request):
 
 @routes.post("/xrpc/com.atproto.repo.deleteRecord")
 @authenticated
-async def repo_apply_writes(request: web.Request):
+async def repo_delete_record(request: web.Request):
 	orig: dict = await request.json()
 	req = {
 		"repo": orig["repo"],
@@ -293,6 +296,53 @@ async def repo_apply_writes(request: web.Request):
 	return web.json_response({
 		"commit": res["commit"]
 	})
+
+
+@routes.post("/xrpc/com.atproto.repo.uploadBlob")
+@authenticated
+async def repo_upload_blob(request: web.Request):
+	mime = request.headers.get("content-type", "application/octet-stream")
+	BLOCK_SIZE = 0x10000 # 64k for now, might tweak this upwards, for perf?
+	db = get_db(request)
+	# TODO: should I start a fresh transaction here? will it block other writers for the duration?
+	db.con.execute(
+		"INSERT INTO blob (repo, refcount) VALUES ((SELECT id FROM user WHERE did=?), 0)",
+		(request["authed_did"],)
+	)
+	blob_id = db.con.last_insert_rowid()
+	length_read = 0
+	part_idx = 0
+	hasher = hashlib.sha256()
+	while True:
+		try:
+			chunk = await request.content.readexactly(BLOCK_SIZE)
+		except asyncio.IncompleteReadError as e:
+			chunk = e.partial
+		if not chunk: # zero-length final chunk
+			break
+		length_read += len(chunk)
+		hasher.update(chunk)
+		db.con.execute(
+			"INSERT INTO blob_part (blob, idx, data) VALUES (?, ?, ?)",
+			(blob_id, part_idx, chunk)
+		)
+		part_idx += 1
+		if len(chunk) < BLOCK_SIZE:
+			break
+	digest = hasher.digest()
+	cid = cbrrr.CID(cbrrr.CID.CIDV1_RAW_SHA256_32_PFX + digest)
+	db.con.execute("UPDATE blob SET cid=? WHERE id=?", (bytes(cid), blob_id)) # TODO: check for duplicate blobs! (the unique constraint should get violated, we just need to clean up)
+	return web.json_response({
+		"blob": {
+			"$type": "blob",
+			"ref": {
+				"$link": cid.encode()
+			},
+			"mimeType": mime, # note: not stored, merely reflected
+			"size": length_read
+		}
+	})
+
 
 @routes.get("/xrpc/com.atproto.sync.listRepos")
 async def sync_list_repos(request: web.Request):  # TODO: pagination
