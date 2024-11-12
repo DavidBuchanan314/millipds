@@ -33,12 +33,16 @@ from atmst.mst.diff import mst_diff, record_diff, DeltaType
 WriteOp = TypedDict("WriteOp", {
 	"$type": Literal["com.atproto.repo.applyWrites#create", "com.atproto.repo.applyWrites#update", "com.atproto.repo.applyWrites#delete"],
 	"collection": str,
-	"rkey": NotRequired[str],
+	"rkey": NotRequired[str], # required for update, delete
 	"validate": NotRequired[bool],
 	"swapRecord": NotRequired[str],
-	"value": dict
+	"value": NotRequired[dict] # not required for delete
 })
 
+# This is perhaps the most complex function in the whole codebase.
+# There's probably some scope for refactoring, but I like the "directness" of it.
+# The work it does is inherently complex, i.e. the atproto MST record commit logic
+# The MST logic itself is hidden away inside the `atmst` module.
 def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 	con = db.new_con()
 	# hm, if everything is synchronous, it's actually safe to reuse the existing db con

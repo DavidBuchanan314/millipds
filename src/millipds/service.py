@@ -344,7 +344,7 @@ async def repo_upload_blob(request: web.Request):
 	except apsw.ConstraintError:
 		# this means the blob already existed, we need to clean up the duplicate
 		# TODO: if we were using transactions this could happen automagically
-		db.con.execute("DELETE FROM blob_part WHERE blob=?", (blob_id,))
+		db.con.execute("DELETE FROM blob_part WHERE blob=?", (blob_id,)) # TODO: could also make this happen in a delete hook?
 		db.con.execute("DELETE FROM blob WHERE id=?", (blob_id,))
 		logger.info("uploaded blob already existed, dropping duplicate")
 
