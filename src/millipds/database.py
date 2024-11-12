@@ -9,18 +9,14 @@ from typing import Optional, Dict, List, Tuple, BinaryIO
 from functools import cached_property
 import secrets
 import logging
-import io
 
 import argon2  # maybe this should come from .crypto?
 import apsw
 import apsw.bestpractice
 
 import cbrrr
-from atmst.blockstore import BlockStore, OverlayBlockStore, MemoryBlockStore
-from atmst.mst.node_store import NodeStore
-from atmst.mst.node_wrangler import NodeWrangler
+from atmst.blockstore import BlockStore
 from atmst.mst.node import MSTNode
-from atmst.mst.diff import mst_diff, record_diff
 
 from . import static_config
 from . import util
@@ -67,7 +63,7 @@ class Database:
 				raise Exception("unrecognised db version (TODO: db migrations?!)")
 
 		except apsw.SQLError as e:  # no such table, so lets create it
-			if not "no such table" in str(e):
+			if "no such table" not in str(e):
 				raise
 			with self.con:
 				self._init_central_tables()

@@ -64,16 +64,18 @@ def deep_iter(obj: cbrrr.DagCborTypes) -> Iterator[cbrrr.DagCborTypes]:
 	while (item := next(stack)) is not sentinel:
 		yield item
 		match item:
-			case dict(): stack = itertools.chain(item.values(), stack)
-			case list(): stack = itertools.chain(item, stack)
+			case dict():
+				stack = itertools.chain(item.values(), stack)
+			case list():
+				stack = itertools.chain(item, stack)
 
 
 # expects obj to be in "native" format, not "atjson"
 def enumerate_blob_cids(obj: cbrrr.DagCborTypes) -> Iterator[cbrrr.CID]:
 	for item in deep_iter(obj):
-		if type(item) is dict and item.get("$type") == "blob":
+		if isinstance(item, dict) and item.get("$type") == "blob":
 			ref = item.get("ref")
-			if type(ref) is not cbrrr.CID:
+			if not isinstance(ref, cbrrr.CID):
 				continue
 			if ref.is_cidv1_raw_sha256_32(): # XXX: will need updating if more CID types are accepted in future
 				yield ref

@@ -51,7 +51,6 @@ General options:
 
 import importlib.metadata
 import asyncio
-import sys
 import logging
 from getpass import getpass
 
