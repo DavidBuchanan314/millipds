@@ -8,6 +8,7 @@ import io
 import os
 import hashlib
 
+import apsw
 import aiohttp
 from aiohttp import web
 import jwt
@@ -331,7 +332,15 @@ async def repo_upload_blob(request: web.Request):
 			break
 	digest = hasher.digest()
 	cid = cbrrr.CID(cbrrr.CID.CIDV1_RAW_SHA256_32_PFX + digest)
-	db.con.execute("UPDATE blob SET cid=? WHERE id=?", (bytes(cid), blob_id)) # TODO: check for duplicate blobs! (the unique constraint should get violated, we just need to clean up)
+	try:
+		db.con.execute("UPDATE blob SET cid=? WHERE id=?", (bytes(cid), blob_id))
+	except apsw.ConstraintError:
+		# this means the blob already existed, we need to clean up the duplicate
+		# TODO: if we were using transactions this could happen automagically
+		db.con.execute("DELETE FROM blob_part WHERE blob=?", (blob_id,))
+		db.con.execute("DELETE FROM blob WHERE id=?", (blob_id,))
+		logger.info("uploaded blob already existed, dropping duplicate")
+
 	return web.json_response({
 		"blob": {
 			"$type": "blob",

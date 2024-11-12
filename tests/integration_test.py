@@ -111,9 +111,10 @@ for i in range(10):
 
 
 blob = os.urandom(0x100000)
-r = s.post(PDS + "/xrpc/com.atproto.repo.uploadBlob", data=blob, headers=authn|{"content-type": "blah"})
-print(r.json())
-assert r.ok
+for _ in range(2): # test reupload is nop
+	r = s.post(PDS + "/xrpc/com.atproto.repo.uploadBlob", data=blob, headers=authn|{"content-type": "blah"})
+	print(r.json())
+	assert r.ok
 
 
 r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": "did:web:alice.test"})
