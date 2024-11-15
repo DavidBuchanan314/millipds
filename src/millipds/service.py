@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 import importlib.metadata
 import logging
 import asyncio
@@ -442,6 +442,7 @@ def construct_app(routes, db: database.Database) -> web.Application:
 	app["MILLIPDS_AIOHTTP_CLIENT"] = (
 		aiohttp.ClientSession()
 	)  # should this be dependency-injected?
+	app["MILLIPDS_FIREHOSE_QUEUES"] = []
 	app.add_routes(routes)
 
 	# list of routes to proxy to the appview - hopefully not needed in the future (we'll derive the list from lexicons? and/or maybe service-proxying would be used?) https://github.com/bluesky-social/atproto/discussions/2350#discussioncomment-11193778
@@ -500,15 +501,15 @@ def construct_app(routes, db: database.Database) -> web.Application:
 	return app
 
 
+# these helpers are useful for conciseness and type hinting
 def get_db(req: web.Request) -> database.Database:
-	"""
-	Helper function to retreive the db instance associated with a request
-	"""
 	return req.app["MILLIPDS_DB"]
-
 
 def get_client(req: web.Request) -> aiohttp.ClientSession:
 	return req.app["MILLIPDS_AIOHTTP_CLIENT"]
+
+def get_firehose_queues(req: web.Request) -> List[asyncio.Queue]:
+	return req.app["MILLIPDS_FIREHOSE_QUEUES"]
 
 
 async def run(db: database.Database, sock_path: Optional[str], host: str, port: int):

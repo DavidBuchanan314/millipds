@@ -51,7 +51,10 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 		bs = OverlayBlockStore(mem_bs, db_bs)
 		ns = NodeStore(bs)
 		wrangler = NodeWrangler(ns)
-		user_id, prev_commit, signing_key_pem = con.execute("SELECT id, commit_bytes, signing_key FROM user WHERE did=?", (repo,)).fetchone()
+		user_id, prev_commit, signing_key_pem = con.execute(
+			"SELECT id, commit_bytes, signing_key FROM user WHERE did=?",
+			(repo,)
+		).fetchone()
 		prev_commit = cbrrr.decode_dag_cbor(prev_commit)
 		prev_commit_root = prev_commit["data"]
 		tid_now = util.tid_now()
@@ -103,6 +106,12 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 		new_record_cids = []
 		firehose_ops = []
 		for delta in record_diff(ns, created, deleted):
+			if delta.prior_value:
+				# needed for blob decref
+				prior_value = con.execute(
+					"SELECT value FROM record WHERE repo=? AND path=?",
+					(user_id, delta.key)
+				).fetchone()[0]
 			if delta.delta_type == DeltaType.CREATED:
 				new_record_cids.append(delta.later_value)
 				firehose_ops.append({
@@ -124,8 +133,8 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 					"action": "update"
 				})
 				new_value = record_cbors[delta.later_value]
-				blob_incref_all(con, user_id, new_value, tid_now)
-				# TODO: decref old value!!!!
+				blob_incref_all(con, user_id, new_value, tid_now) # important to incref before decref
+				blob_decref_all(con, user_id, prior_value)
 				con.execute(
 					"UPDATE record SET cid=?, since=?, value=? WHERE repo=? AND path=?",
 					(bytes(delta.later_value), tid_now, new_value, user_id, delta.key)
@@ -136,9 +145,9 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 					"path": delta.key,
 					"action": "delete"
 				})
-				# TODO: decref!!!
+				blob_decref_all(con, user_id, prior_value)
 				con.execute(
-					"DELETE FROM WHERE repo=? AND path=?",
+					"DELETE FROM record WHERE repo=? AND path=?",
 					(user_id, delta.key)
 				)
 			else:
@@ -218,9 +227,14 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 		return applywrites_res, firehose_bytes
 
 
+# and also set `since`, if previously unset
 def blob_incref_all(con: apsw.Connection, user_id: int, record_bytes: bytes, tid: str):
 	for ref in util.enumerate_blob_cids(cbrrr.decode_dag_cbor(record_bytes)):
 		blob_incref(con, user_id, ref, tid)
+
+def blob_decref_all(con: apsw.Connection, user_id: int, record_bytes: bytes):
+	for ref in util.enumerate_blob_cids(cbrrr.decode_dag_cbor(record_bytes)):
+		blob_decref(con, user_id, ref)
 
 def blob_incref(con: apsw.Connection, user_id: int, ref: cbrrr.CID, tid: str):
 	# also set `since` if this is the first time a blob has ever been ref'd
@@ -234,9 +248,20 @@ def blob_incref(con: apsw.Connection, user_id: int, ref: cbrrr.CID, tid: str):
 		return  # happy path
 
 	if changes == 0:
-		raise ValueError("tried to incref a blob that doesn't exist")
+		raise ValueError("tried to incref a blob that doesn't exist") # could happen if e.g. user didn't upload blob first
 	
 	# changes > 1
 	raise ValueError("welp, that's not supposed to happen") # should be impossible given UNIQUE constraints
 
-# TODO: blob decref!!!!!
+def blob_decref(con: apsw.Connection, user_id: int, ref: cbrrr.CID):
+	blob_id, refcount = con.execute(
+		"UPDATE blob SET refcount=refcount-1 WHERE blob.repo=? AND blob.cid=? RETURNING id, refcount",
+		(user_id, bytes(ref))
+	).fetchone()
+
+	assert(con.changes() == 1)
+	assert(refcount >= 0)
+
+	if refcount == 0:
+		con.execute("DELETE FROM blob_part WHERE blob=?", (blob_id,)) # TODO: could also make this happen in a delete hook?
+		con.execute("DELETE FROM blob WHERE id=?", (blob_id,))
