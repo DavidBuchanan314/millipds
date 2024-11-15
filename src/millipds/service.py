@@ -6,6 +6,7 @@ import aiohttp_cors
 import time
 import io
 import os
+import json
 import hashlib
 
 import apsw
@@ -95,10 +96,10 @@ async def identity_resolve_handle(request: web.Request):
 	handle = request.query.get("handle")
 	if not isinstance(handle, str):
 		print(handle)
-		raise web.HTTPBadRequest(text="missing or invalid handle")
+		return web.HTTPBadRequest(text="missing or invalid handle")
 	did = get_db(request).did_by_handle(handle)
 	if not did:
-		raise web.HTTPNotFound(text="no user by that handle exists on this PDS")
+		return web.HTTPNotFound(text="no user by that handle exists on this PDS")
 	return web.json_response({"did": did})
 
 
@@ -116,11 +117,15 @@ async def server_describe_server(request: web.Request):
 @routes.post("/xrpc/com.atproto.server.createSession")
 async def server_create_session(request: web.Request):
 	# extract the args
-	json: dict = await request.json()
-	identifier = json.get("identifier")
-	password = json.get("password")
+	try:
+		req_json: dict = await request.json()
+	except json.JSONDecodeError:
+		return web.HTTPBadRequest(text="expected JSON")
+
+	identifier = req_json.get("identifier")
+	password = req_json.get("password")
 	if not (isinstance(identifier, str) and isinstance(password, str)):
-		raise web.HTTPBadRequest(text="invalid identifier or password")
+		return web.HTTPBadRequest(text="invalid identifier or password")
 
 	# do authentication
 	db = get_db(request)
@@ -368,7 +373,7 @@ async def sync_get_blob(request: web.Request):
 			(request.query["did"], bytes(cbrrr.CID.decode(request.query["cid"]))) # TODO: check params exist first, give nicer error
 		).fetchone()
 		if blob_id is None:
-			return web.HTTPNotFound("blob not found")
+			return web.HTTPNotFound(text="blob not found")
 		res = web.StreamResponse()
 		res.content_type = "application/octet-stream"
 		await res.prepare(request)
@@ -401,16 +406,21 @@ async def sync_list_repos(request: web.Request):  # TODO: pagination
 async def sync_get_repo(request: web.Request):
 	did = request.query.get("did")
 	if not isinstance(did, str):
-		raise web.HTTPBadRequest(text="no did specified")
+		return web.HTTPBadRequest(text="no did specified")
 	since = request.query.get("since", "") # empty string is "lowest" possible value wrt string comparison
-	res = web.StreamResponse()
-	res.content_type = "application/vnd.ipld.car"
-	await res.prepare(request)
+
 	with get_db(request).new_con(readonly=True) as con: # make sure we have a consistent view of the repo
-		user_id, head, commit_bytes = con.execute(
-			"SELECT id, head, commit_bytes FROM user WHERE did=?",
-			(did,)
-		).fetchone()
+		try:
+			user_id, head, commit_bytes = con.execute(
+				"SELECT id, head, commit_bytes FROM user WHERE did=?",
+				(did,)
+			).fetchone()
+		except TypeError: # from trying to unpack None
+			return web.HTTPNotFound(text="repo not found")
+
+		res = web.StreamResponse()
+		res.content_type = "application/vnd.ipld.car"
+		await res.prepare(request)
 		await res.write(util.serialize_car_header(head))
 		await res.write(util.serialize_car_entry(head, commit_bytes))
 
@@ -425,6 +435,7 @@ async def sync_get_repo(request: web.Request):
 			(user_id, since)
 		):
 			await res.write(util.serialize_car_entry(record_cid, record_value))
+
 	await res.write_eof()
 	return res
 

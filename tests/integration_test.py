@@ -134,4 +134,8 @@ r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": "did:web:alice.
 assert r.ok
 open("repo.car", "wb").write(r.content)
 
+r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": "did:web:nonexistent.invalid"})
+assert not r.ok
+assert r.status_code == 404
+
 print("we got to the end of the script!")
