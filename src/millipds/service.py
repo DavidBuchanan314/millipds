@@ -359,6 +359,27 @@ async def repo_upload_blob(request: web.Request):
 		}
 	})
 
+@routes.get("/xrpc/com.atproto.sync.getBlob")
+async def sync_get_blob(request: web.Request):
+	db = get_db(request)
+	blob_id = db.con.execute(
+		"SELECT blob.id FROM blob INNER JOIN user ON blob.repo=user.id WHERE did=? AND cid=? AND refcount>0",
+		(request.query["did"], bytes(cbrrr.CID.decode(request.query["cid"]))) # TODO: check params exist first, give nicer error
+	).fetchone()
+	if blob_id is None:
+		return web.HTTPNotFound("blob not found")
+	res = web.StreamResponse()
+	res.content_type = "application/octet-stream"
+	await res.prepare(request)
+	# XXX: there's a small race condition here, between requesting the blob_id and using it
+	for blob_part, *_ in db.con.execute(
+		"SELECT data FROM blob_part WHERE blob=? ORDER BY idx",
+		(blob_id[0],)
+	):
+		await res.write(blob_part)
+	await res.write_eof()
+	return res
+
 
 @routes.get("/xrpc/com.atproto.sync.listRepos")
 async def sync_list_repos(request: web.Request):  # TODO: pagination

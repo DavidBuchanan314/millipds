@@ -113,9 +113,22 @@ for i in range(10):
 blob = os.urandom(0x100000)
 for _ in range(2): # test reupload is nop
 	r = s.post(PDS + "/xrpc/com.atproto.repo.uploadBlob", data=blob, headers=authn|{"content-type": "blah"})
-	print(r.json())
+	res = r.json()
+	print(res)
 	assert r.ok
 
+# get the blob refcount >0
+r = s.post(PDS + "/xrpc/com.atproto.repo.createRecord", headers=authn, json={
+	"repo": "did:web:alice.test",
+	"collection": "app.bsky.feed.post",
+	"record": {"myblob": res}
+})
+print(r.json())
+assert(r.ok)
+
+r = s.get(PDS + "/xrpc/com.atproto.sync.getBlob", params={"did": "did:web:alice.test", "cid": res["blob"]["ref"]["$link"]})
+downloaded_blob = r.content
+assert(downloaded_blob == blob)
 
 r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": "did:web:alice.test"})
 assert r.ok
