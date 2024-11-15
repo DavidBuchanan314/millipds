@@ -18,6 +18,7 @@ import cbrrr
 from . import static_config
 from . import database
 from . import repo_ops
+from . import util
 
 logger = logging.getLogger(__name__)
 
@@ -398,18 +399,32 @@ async def sync_list_repos(request: web.Request):  # TODO: pagination
 
 @routes.get("/xrpc/com.atproto.sync.getRepo")
 async def sync_get_repo(request: web.Request):
-	# TODO: "since"
-	# TODO: make this async/streaming!!! (important!!!)
 	did = request.query.get("did")
 	if not isinstance(did, str):
 		raise web.HTTPBadRequest(text="no did specified")
-	db = get_db(request)
+	since = request.query.get("since", "") # empty string is "lowest" possible value wrt string comparison
 	res = web.StreamResponse()
 	res.content_type = "application/vnd.ipld.car"
 	await res.prepare(request)
-	car = io.BytesIO()
-	db.get_repo(did, car)
-	await res.write(car.getvalue())  # writing all in one chunk is useless!!!
+	with get_db(request).new_con(readonly=True) as con: # make sure we have a consistent view of the repo
+		user_id, head, commit_bytes = con.execute(
+			"SELECT id, head, commit_bytes FROM user WHERE did=?",
+			(did,)
+		).fetchone()
+		await res.write(util.serialize_car_header(head))
+		await res.write(util.serialize_car_entry(head, commit_bytes))
+
+		for mst_cid, mst_value in con.execute(
+			"SELECT cid, value FROM mst WHERE repo=? AND since>=?",
+			(user_id, since)
+		):
+			await res.write(util.serialize_car_entry(mst_cid, mst_value))
+
+		for record_cid, record_value in con.execute(
+			"SELECT cid, value FROM record WHERE repo=? AND since>=?",
+			(user_id, since)
+		):
+			await res.write(util.serialize_car_entry(record_cid, record_value))
 	await res.write_eof()
 	return res
 

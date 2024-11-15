@@ -80,6 +80,17 @@ def enumerate_blob_cids(obj: cbrrr.DagCborTypes) -> Iterator[cbrrr.CID]:
 			if ref.is_cidv1_raw_sha256_32(): # XXX: will need updating if more CID types are accepted in future
 				yield ref
 
+# TODO: it's a little silly that we implement CAR serialization twice. unify them?
+def serialize_car_header(root_bytes: bytes) -> bytes:
+	header_bytes = cbrrr.encode_dag_cbor(
+		{"version": static_config.CAR_VERSION_1, "roots": [cbrrr.CID(root_bytes)]}
+	)
+	return encode_varint(len(header_bytes)) + header_bytes
+
+
+def serialize_car_entry(cid_bytes: bytes, value: bytes):
+	return encode_varint(len(cid_bytes) + len(value)) + cid_bytes + value
+
 
 class CarWriter:
 	def __init__(self, stream: BinaryIO, root: cbrrr.CID) -> None:

@@ -43,9 +43,7 @@ WriteOp = TypedDict("WriteOp", {
 # The work it does is inherently complex, i.e. the atproto MST record commit logic
 # The MST logic itself is hidden away inside the `atmst` module.
 def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
-	con = db.new_con()
-	# hm, if everything is synchronous, it's actually safe to reuse the existing db con
-	with con: # one big transaction (we could perhaps work in two phases, prepare (via read-only conn) then commit?)
+	with db.new_con() as con: # one big transaction (we could perhaps work in two phases, prepare (via read-only conn) then commit?)
 		db_bs = DBBlockStore(con, repo)
 		mem_bs = MemoryBlockStore()
 		bs = OverlayBlockStore(mem_bs, db_bs)
@@ -228,6 +226,9 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
 
 
 # and also set `since`, if previously unset
+# NB: both of these will incref/decref the same blob multiple times, if a record contains the same blob multiple times.
+# this is mildly sub-optimal perf-wise but it keeps the code simple.
+# (why would you reference the same blob multiple times anyway?)
 def blob_incref_all(con: apsw.Connection, user_id: int, record_bytes: bytes, tid: str):
 	for ref in util.enumerate_blob_cids(cbrrr.decode_dag_cbor(record_bytes)):
 		blob_incref(con, user_id, ref, tid)

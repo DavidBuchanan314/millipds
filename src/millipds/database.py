@@ -66,7 +66,7 @@ class Database:
 			if "no such table" not in str(e):
 				raise
 			with self.con:
-				self._init_central_tables()
+				self._init_tables()
 
 	def new_con(self, readonly=False):
 		"""
@@ -83,8 +83,8 @@ class Database:
 			apsw.SQLITE_OPEN_READONLY if readonly else apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE 
 		))
 
-	def _init_central_tables(self):
-		logger.info("initing central tables")
+	def _init_tables(self):
+		logger.info("initing tables")
 		self.con.execute(
 			"""
 			CREATE TABLE config(
@@ -170,8 +170,8 @@ class Database:
 
 		# nb: blobs are partitioned per-repo
 		# TODO: think carefully about refcount/since interaction?
-		# TODO: when should blob GC happen? after each commit?
-		# NOTE: blobs have null cid when they're midway through being uploaded
+		# TODO: when should blob GC happen? after each commit? (nah, that would behave badly with e.g. concurrent browser sessions)
+		# NOTE: blobs have null cid when they're midway through being uploaded,
 		# and they have null "since" when they haven't been committed yet
 		# TODO: store length explicitly?
 		self.con.execute(
@@ -362,31 +362,6 @@ class Database:
 				"SELECT did, head, rev FROM user"
 			).fetchall()
 		]
-
-	def get_repo(self, did: str, stream: BinaryIO):
-		# TODO: make this async?
-		# TODO: "since"
-
-		with self.new_con(readonly=True) as con: # make sure we have a consistent view of the repo
-			user_id, head, commit_bytes = con.execute(
-				"SELECT id, head, commit_bytes FROM user WHERE did=?",
-				(did,)
-			).fetchone()
-			head = cbrrr.CID(head)
-			cw = util.CarWriter(stream, head)
-			cw.write_block(head, commit_bytes)
-
-			for mst_cid, mst_value in con.execute(
-				"SELECT cid, value FROM mst WHERE repo=?",
-				(user_id,)
-			):
-				cw.write_block(cbrrr.CID(mst_cid), mst_value)
-
-			for record_cid, record_value in con.execute(
-				"SELECT cid, value FROM record WHERE repo=?",
-				(user_id,)
-			):
-				cw.write_block(cbrrr.CID(record_cid), record_value)
 
 	def get_blockstore(self, did: str) -> "Database":
 		return DBBlockStore(self, did)
