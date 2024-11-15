@@ -68,7 +68,7 @@ class Database:
 			with self.con:
 				self._init_central_tables()
 
-	def new_con(self):
+	def new_con(self, readonly=False):
 		"""
 		https://rogerbinns.github.io/apsw/cursor.html
 		"Cursors on the same Connection are not isolated from each other.
@@ -79,7 +79,9 @@ class Database:
 
 		therefore we frequently spawn new connections when we need an isolated cursor
 		"""
-		return apsw.Connection(self.path)
+		return apsw.Connection(self.path, flags=(
+			apsw.SQLITE_OPEN_READONLY if readonly else apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE 
+		))
 
 	def _init_central_tables(self):
 		logger.info("initing central tables")
@@ -365,8 +367,7 @@ class Database:
 		# TODO: make this async?
 		# TODO: "since"
 
-		con = self.new_con() # TODO: readonly
-		with con: # make sure we have a consistent view of the repo
+		with self.new_con(readonly=True) as con: # make sure we have a consistent view of the repo
 			user_id, head, commit_bytes = con.execute(
 				"SELECT id, head, commit_bytes FROM user WHERE did=?",
 				(did,)
