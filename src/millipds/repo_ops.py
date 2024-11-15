@@ -112,6 +112,8 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 
 		# step 2: persist record changes
 		# (and also build ops list for firehose)
+		# nb: this ops list may be more "efficient" than that of the input writes list
+		# if e.g. a record was created and then immediately deleted, or modified multiple times.
 		new_record_cids = []
 		firehose_ops = []
 		for delta in record_diff(ns, created, deleted):
