@@ -10,8 +10,9 @@ I'm never planning on replacing sqlite with anything else, so the tight coupling
 """
 
 import io
-from typing import List, TypedDict, Literal, NotRequired
+from typing import List, TypedDict, Literal, NotRequired, Optional
 import apsw
+import aiohttp.web
 
 import cbrrr
 
@@ -42,19 +43,22 @@ WriteOp = TypedDict("WriteOp", {
 # There's probably some scope for refactoring, but I like the "directness" of it.
 # The work it does is inherently complex, i.e. the atproto MST record commit logic
 # The MST logic itself is hidden away inside the `atmst` module.
-def apply_writes(db: Database, repo: str, writes: List[WriteOp]):
+def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Optional[str]):
 	with db.new_con() as con: # one big transaction (we could perhaps work in two phases, prepare (via read-only conn) then commit?)
 		db_bs = DBBlockStore(con, repo)
 		mem_bs = MemoryBlockStore()
 		bs = OverlayBlockStore(mem_bs, db_bs)
 		ns = NodeStore(bs)
 		wrangler = NodeWrangler(ns)
-		user_id, prev_commit, signing_key_pem = con.execute(
-			"SELECT id, commit_bytes, signing_key FROM user WHERE did=?",
+		user_id, prev_commit, signing_key_pem, head = con.execute(
+			"SELECT id, commit_bytes, signing_key, head FROM user WHERE did=?",
 			(repo,)
 		).fetchone()
+		if swap_commit is not None:
+			if swap_commit != cbrrr.CID(head).encode():
+				raise aiohttp.web.HTTPBadRequest(text="swapCommit did not match")
 		prev_commit = cbrrr.decode_dag_cbor(prev_commit)
-		prev_commit_root = prev_commit["data"]
+		prev_commit_root: cbrrr.CID = prev_commit["data"]
 		tid_now = util.tid_now()
 
 		record_cbors: dict[cbrrr.CID, bytes] = {}

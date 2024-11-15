@@ -5,7 +5,7 @@ Password hashing also happens in here, because it doesn't make much sense to do
 it anywhere else.
 """
 
-from typing import Optional, Dict, List, Tuple, BinaryIO
+from typing import Optional, Dict, List, Tuple
 from functools import cached_property
 import secrets
 import logging

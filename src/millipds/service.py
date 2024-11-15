@@ -4,7 +4,6 @@ import logging
 import asyncio
 import aiohttp_cors
 import time
-import io
 import os
 import json
 import hashlib
@@ -223,15 +222,30 @@ async def server_get_session(request: web.Request):
 			"did": request["authed_did"],
 			"email": "tfw_no@email.invalid",  # this and below are just here for testing lol
 			"emailConfirmed": True,
-			#"didDoc": {},
+			#"didDoc": {}, # iiuc this is only used for entryway usecase?
 		}
 	)
+
+async def firehose_broadcast(request: web.Request, msg: bytes):
+	async with get_firehose_queues_lock(request):
+		for queue in get_firehose_queues(request):
+			try:
+				queue.put_nowait(msg) # hm, this is synchronous so we could drop the lock
+			except asyncio.QueueFull:
+				pass
+				# TODO: kill the client with tooslow error!
+
 
 async def apply_writes_and_emit_firehose(request: web.Request, req_json: dict) -> dict:
 	if req_json["repo"] != request["authed_did"]:
 		raise web.HTTPUnauthorized(text="not authed for that repo")
-	res, firehose_res = repo_ops.apply_writes(get_db(request), request["authed_did"], req_json["writes"])
-	# TODO: emit firehose!!
+	res, firehose_res = repo_ops.apply_writes(
+		get_db(request),
+		request["authed_did"],
+		req_json["writes"],
+		req_json.get("swapCommit")
+	)
+	await firehose_broadcast(request, firehose_res)
 	return res
 
 
@@ -489,6 +503,7 @@ def construct_app(routes, db: database.Database) -> web.Application:
 		aiohttp.ClientSession()
 	)  # should this be dependency-injected?
 	app["MILLIPDS_FIREHOSE_QUEUES"] = []
+	app["MILLIPDS_FIREHOSE_QUEUES_LOCK"] = asyncio.Lock()
 	app.add_routes(routes)
 
 	# list of routes to proxy to the appview - hopefully not needed in the future (we'll derive the list from lexicons? and/or maybe service-proxying would be used?) https://github.com/bluesky-social/atproto/discussions/2350#discussioncomment-11193778
@@ -556,6 +571,9 @@ def get_client(req: web.Request) -> aiohttp.ClientSession:
 
 def get_firehose_queues(req: web.Request) -> List[asyncio.Queue]:
 	return req.app["MILLIPDS_FIREHOSE_QUEUES"]
+
+def get_firehose_queues_lock(req: web.Request) -> asyncio.Lock:
+	return req.app["MILLIPDS_FIREHOSE_QUEUES_LOCK"]
 
 
 async def run(db: database.Database, sock_path: Optional[str], host: str, port: int):
