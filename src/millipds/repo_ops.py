@@ -55,8 +55,8 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 			(repo,)
 		).fetchone()
 		if swap_commit is not None:
-			if swap_commit != cbrrr.CID(head).encode():
-				raise aiohttp.web.HTTPBadRequest(text="swapCommit did not match")
+			if cbrrr.CID.decode(swap_commit) != cbrrr.CID(head):
+				raise aiohttp.web.HTTPBadRequest(text="swapCommit did not match current head") # XXX: probably the wrong way to signal this error lol
 		prev_commit = cbrrr.decode_dag_cbor(prev_commit)
 		prev_commit_root: cbrrr.CID = prev_commit["data"]
 		tid_now = util.tid_now()
@@ -70,12 +70,16 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 		for op in writes:
 			optype = op["$type"]
 			# TODO: rkey validation!
+			rkey = op.get("rkey") or tid_now
+			path = op["collection"] + "/" + rkey
+			prev_cid = NodeWalker(ns, prev_root).find_value(path)
 			if optype in ["com.atproto.repo.applyWrites#create", "com.atproto.repo.applyWrites#update"]:
-				rkey = op.get("rkey") or tid_now
-				path = op["collection"] + "/" + rkey
 				if optype == "com.atproto.repo.applyWrites#create":
-					if NodeWalker(ns, prev_root).find_value(path):
-						raise Exception("record already exists")
+					if prev_cid is not None:
+						raise aiohttp.web.HTTPBadRequest(text="record already exists")
+				elif "swapRecord" in op: # only applies to #update
+					if cbrrr.CID.decode(op["swapRecord"]) != prev_cid:
+						raise aiohttp.web.HTTPBadRequest(text="swapRecord did not match")
 				value_cbor = cbrrr.encode_dag_cbor(op["value"], atjson_mode=True)
 				value_cid = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(value_cbor)
 				record_cbors[value_cid] = value_cbor
@@ -87,9 +91,12 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 					"validationStatus": "unknown" # we are not currently aware of the concept of a lexicon!
 				})
 			elif optype == "com.atproto.repo.applyWrites#delete":
-				next_root = wrangler.del_record(prev_root, op["collection"] + "/" + op["rkey"])
+				if "swapRecord" in op:
+					if cbrrr.CID.decode(op["swapRecord"]) != prev_cid:
+						raise aiohttp.web.HTTPBadRequest(text="swapRecord did not match")
+				next_root = wrangler.del_record(prev_root, path)
 				if prev_root == next_root:
-					raise Exception("no such record") # TODO: better error signalling!!!
+					raise aiohttp.web.HTTPBadRequest(text="no such record") # TODO: better error signalling!!!
 				results.append({
 					"$type": "com.atproto.repo.applyWrites#deleteResult"
 				})
