@@ -502,6 +502,23 @@ async def sync_list_repos(request: web.Request):  # TODO: pagination
 		}
 	)
 
+@routes.get("/xrpc/com.atproto.sync.getLatestCommit")
+async def sync_get_latest_commit(request: web.Request):
+	did = request.query.get("did")
+	if did is None:
+		return web.HTTPBadRequest(text="no did specified")
+	row = get_db(request).con.execute(
+		"SELECT rev, head FROM user WHERE did=?",
+		(did,)
+	).fetchone()
+	if row is None:
+		return web.HTTPNotFound("did not found")
+	rev, head = row
+	return web.json_response({
+		"cid": cbrrr.CID(head).encode(),
+		"rev": rev
+	})
+
 
 @routes.get("/xrpc/com.atproto.sync.getRepoStatus")
 async def sync_get_repo_status(request: web.Request):
@@ -512,7 +529,7 @@ async def sync_get_repo_status(request: web.Request):
 		"SELECT rev FROM user WHERE did=?",
 		(did,)
 	).fetchone()
-	if not row:
+	if row is None:
 		return web.HTTPNotFound("did not found")
 	return web.json_response({
 		"did": did,
