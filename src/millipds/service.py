@@ -345,8 +345,39 @@ async def repo_describe_repo(request: web.Request):
 		})
 
 
+@routes.get("/xrpc/com.atproto.repo.getRecord")
+async def repo_get_record(request: web.Request):
+	if "repo" not in request.query:
+		return web.HTTPBadRequest("missing repo")
+	if "collection" not in request.query:
+		return web.HTTPBadRequest("missing collection")
+	if "rkey" not in request.query:
+		return web.HTTPBadRequest("missing rkey")
+	did_or_handle = request.query["repo"]
+	collection = request.query["collection"]
+	rkey = request.query["rkey"]
+	cid_in = request.query.get("cid")
+	db = get_db(request)
+	row = db.con.execute(
+		"SELECT cid, value FROM record WHERE repo=(SELECT id FROM user WHERE did=? OR handle=?) AND nsid=? AND rkey=?",
+		(did_or_handle, did_or_handle, collection, rkey)
+	).fetchone()
+	if row is None:
+		return web.HTTPNotFound("record not found")
+	cid_out, value = row
+	cid_out = cbrrr.CID(cid_out)
+	if cid_in is not None:
+		if cbrrr.CID.decode(cid_in) != cid_out:
+			return web.HTTPNotFound("record not found with matching CID")
+	return web.json_response({
+		"uri": f"at://{did_or_handle}/{collection}/{rkey}", # TODO rejig query to get the did out always,
+		"cid": cid_out.encode(),
+		"value": cbrrr.decode_dag_cbor(value, atjson_mode=True)
+	})
+
+
 @routes.get("/xrpc/com.atproto.repo.listRecords")
-async def repo_lis_records(request: web.Request):
+async def repo_list_records(request: web.Request):
 	# TODO: cursor, limit, reverse
 	if "repo" not in request.query:
 		return web.HTTPBadRequest("missing repo")
