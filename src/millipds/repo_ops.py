@@ -122,26 +122,26 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 				# needed for blob decref
 				prior_value = con.execute(
 					"SELECT value FROM record WHERE repo=? AND nsid=? AND rkey=?",
-					(user_id,) + util.split_path(delta.key)
+					(user_id,) + util.split_path(delta.path)
 				).fetchone()[0]
 			if delta.delta_type == DeltaType.CREATED:
 				new_record_cids.append(delta.later_value)
 				firehose_ops.append({
 					"cid": delta.later_value,
-					"path": delta.key,
+					"path": delta.path,
 					"action": "create"
 				})
 				new_value = record_cbors[delta.later_value]
 				firehose_blobs |= blob_incref_all(con, user_id, new_value, tid_now)
 				con.execute(
 					"INSERT INTO record (repo, nsid, rkey, cid, since, value) VALUES (?, ?, ?, ?, ?, ?)",
-					(user_id,) + util.split_path(delta.key) + (bytes(delta.later_value), tid_now, new_value)
+					(user_id,) + util.split_path(delta.path) + (bytes(delta.later_value), tid_now, new_value)
 				)
 			elif delta.delta_type == DeltaType.UPDATED:
 				new_record_cids.append(delta.later_value)
 				firehose_ops.append({
 					"cid": delta.later_value,
-					"path": delta.key,
+					"path": delta.path,
 					"action": "update"
 				})
 				new_value = record_cbors[delta.later_value]
@@ -149,18 +149,18 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 				blob_decref_all(con, user_id, prior_value)
 				con.execute(
 					"UPDATE record SET cid=?, since=?, value=? WHERE repo=? AND nsid=? AND rkey=?",
-					(bytes(delta.later_value), tid_now, new_value, user_id) + util.split_path(delta.key)
+					(bytes(delta.later_value), tid_now, new_value, user_id) + util.split_path(delta.path)
 				)
 			elif delta.delta_type == DeltaType.DELETED:
 				firehose_ops.append({
 					"cid": None,
-					"path": delta.key,
+					"path": delta.path,
 					"action": "delete"
 				})
 				blob_decref_all(con, user_id, prior_value)
 				con.execute(
 					"DELETE FROM record WHERE repo=? AND nsid=? AND rkey=?",
-					(user_id,) + util.split_path(delta.key)
+					(user_id,) + util.split_path(delta.path)
 				)
 			else:
 				raise Exception("unreachable")
