@@ -112,7 +112,7 @@ for i in range(10):
 			"value": {
 				"blah": "test record"
 			}
-		} for j in range(10)]
+		} for j in range(30)]
 	})
 	print(r.json())
 	assert r.ok

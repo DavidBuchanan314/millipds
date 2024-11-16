@@ -384,19 +384,22 @@ async def repo_get_record(request: web.Request):
 
 @routes.get("/xrpc/com.atproto.repo.listRecords")
 async def repo_list_records(request: web.Request):
-	# TODO: cursor, limit, reverse
+	# TODO: reverse
 	if "repo" not in request.query:
 		return web.HTTPBadRequest("missing repo")
 	if "collection" not in request.query:
 		return web.HTTPBadRequest("missing collection")
+	limit = int(request.query.get("limit", 50))
+	if limit < 1 or limit > 100:
+		return web.HTTPBadRequest(text="limit out of range")
+	cursor = request.query.get("cursor", "")
 	did_or_handle = request.query["repo"]
 	collection = request.query["collection"]
 	records = []
 	db = get_db(request)
-	rkey = None # use this to detect if there was at least one result
 	for rkey, cid, value in db.con.execute(
-		"SELECT rkey, cid, value FROM record WHERE repo=(SELECT id FROM user WHERE did=? OR handle=?) AND nsid=?",
-		(did_or_handle, did_or_handle, collection)
+		"SELECT rkey, cid, value FROM record WHERE repo=(SELECT id FROM user WHERE did=? OR handle=?) AND nsid=? AND rkey>? ORDER BY rkey LIMIT ?",
+		(did_or_handle, did_or_handle, collection, cursor, limit)
 	):
 		records.append({
 			"uri": f"at://{did_or_handle}/{collection}/{rkey}", # TODO rejig query to get the did out always
@@ -407,7 +410,7 @@ async def repo_list_records(request: web.Request):
 		"records": records
 	} | ({
 		"cursor": rkey
-	} if rkey else {}))
+	} if len(records) == limit else {}))
 
 
 @routes.post("/xrpc/com.atproto.repo.uploadBlob")
@@ -503,7 +506,7 @@ async def sync_list_repos(request: web.Request):  # TODO: pagination
 @routes.get("/xrpc/com.atproto.sync.getRepo")
 async def sync_get_repo(request: web.Request):
 	did = request.query.get("did")
-	if not isinstance(did, str):
+	if did is None:
 		return web.HTTPBadRequest(text="no did specified")
 	since = request.query.get("since", "") # empty string is "lowest" possible value wrt string comparison
 
@@ -537,6 +540,32 @@ async def sync_get_repo(request: web.Request):
 
 	await res.write_eof()
 	return res
+
+@routes.get("/xrpc/com.atproto.sync.listBlobs")
+async def sync_list_blobs(request: web.Request):
+	did = request.query.get("did")
+	if did is None:
+		return web.HTTPBadRequest(text="no did specified")
+	since = request.query.get("since", "") # empty string is "lowest" possible value wrt string comparison
+	limit = int(request.query.get("limit", 500))
+	if limit < 1 or limit > 1000:
+		return web.HTTPBadRequest(text="limit out of range")
+	cursor = int(request.query.get("cursor", 0))
+
+	cids = []
+	for id_, cid in get_db(request).con.execute(
+		"SELECT blob.id, cid FROM blob INNER JOIN user ON blob.repo=user.id WHERE did=? AND refcount>0 AND since>? AND blob.id>? ORDER BY blob.id LIMIT ?",
+		(did, since, cursor, limit)
+	):
+		cids.append(cbrrr.CID(cid).encode())
+	
+	return web.json_response({
+		"cids": cids
+	} | ({
+		"cursor": id_
+	} if len(cids) == limit else {}))
+	
+
 
 TOOSLOW_MSG = (
 	cbrrr.encode_dag_cbor({"op": -1}) +
