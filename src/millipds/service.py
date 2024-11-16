@@ -531,15 +531,18 @@ def construct_app(routes, db: database.Database) -> web.Application:
 			# web.get ("/xrpc/app.bsky.actor.getPreferences", static_appview_proxy),
 			# web.post("/xrpc/app.bsky.actor.putPreferences", static_appview_proxy),
 			web.get("/xrpc/app.bsky.actor.getProfile", static_appview_proxy),
+			web.get("/xrpc/app.bsky.actor.getProfiles", static_appview_proxy),
 			web.get("/xrpc/app.bsky.actor.searchActorsTypeahead", static_appview_proxy),
 			web.get("/xrpc/app.bsky.labeler.getServices", static_appview_proxy),
 			web.get(
 				"/xrpc/app.bsky.notification.listNotifications", static_appview_proxy
 			),
 			web.post("/xrpc/app.bsky.notification.updateSeen", static_appview_proxy),
+			web.get("/xrpc/app.bsky.graph.getList", static_appview_proxy),
 			web.get("/xrpc/app.bsky.graph.getLists", static_appview_proxy),
 			web.get("/xrpc/app.bsky.graph.getFollows", static_appview_proxy),
 			web.get("/xrpc/app.bsky.graph.getFollowers", static_appview_proxy),
+			web.get("/xrpc/app.bsky.graph.getStarterPack", static_appview_proxy),
 			web.get(
 				"/xrpc/app.bsky.graph.getSuggestedFollowsByActor", static_appview_proxy
 			),
@@ -550,6 +553,7 @@ def construct_app(routes, db: database.Database) -> web.Application:
 			web.get("/xrpc/app.bsky.feed.getAuthorFeed", static_appview_proxy),
 			web.get("/xrpc/app.bsky.feed.getActorFeeds", static_appview_proxy),
 			web.get("/xrpc/app.bsky.feed.getFeed", static_appview_proxy),
+			web.get("/xrpc/app.bsky.feed.getListFeed", static_appview_proxy),
 			web.get("/xrpc/app.bsky.feed.getFeedGenerator", static_appview_proxy),
 			web.get("/xrpc/app.bsky.feed.getFeedGenerators", static_appview_proxy),
 			web.get("/xrpc/app.bsky.feed.getPostThread", static_appview_proxy),
