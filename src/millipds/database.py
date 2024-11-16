@@ -157,12 +157,13 @@ class Database:
 			"""
 			CREATE TABLE record(
 				repo INTEGER NOT NULL,
-				path TEXT NOT NULL,
+				nsid TEXT NOT NULL,
+				rkey TEXT NOT NULL,
 				cid BLOB NOT NULL,
 				since TEXT NOT NULL,
 				value BLOB NOT NULL,
 				FOREIGN KEY (repo) REFERENCES user(id),
-				PRIMARY KEY (repo, path)
+				PRIMARY KEY (repo, nsid, rkey)
 			)
 			"""
 		)

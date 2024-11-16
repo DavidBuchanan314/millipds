@@ -3,7 +3,7 @@ import time
 import hashlib
 import datetime
 import itertools
-from typing import BinaryIO, Iterator
+from typing import BinaryIO, Iterator, Tuple
 
 import cbrrr
 from atmst.blockstore.car_file import encode_varint
@@ -79,6 +79,15 @@ def enumerate_blob_cids(obj: cbrrr.DagCborTypes) -> Iterator[cbrrr.CID]:
 				continue
 			if ref.is_cidv1_raw_sha256_32(): # XXX: will need updating if more CID types are accepted in future
 				yield ref
+
+
+# this in theory allows slashes in rkey but we probably shouldn't...
+def split_path(path: str) -> Tuple[str, str]: # "nsid/rkey" to ("nsid", "rkey")
+	nsid, sep, rkey = path.partition("/")
+	if sep != "/":
+		raise Exception("invalid path")
+	return nsid, rkey
+
 
 # TODO: it's a little silly that we implement CAR serialization twice. unify them?
 def serialize_car_header(root_bytes: bytes) -> bytes:

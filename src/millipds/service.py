@@ -258,7 +258,7 @@ async def repo_apply_writes(request: web.Request):
 @authenticated
 async def repo_create_record(request: web.Request):
 	orig: dict = await request.json()
-	req = {
+	res = await apply_writes_and_emit_firehose(request, {
 		"repo": orig["repo"],
 		"validate": orig.get("validate"),
 		"swapCommit": orig.get("swapCommit"),
@@ -269,8 +269,7 @@ async def repo_create_record(request: web.Request):
 			"validate": orig.get("validate"),
 			"value": orig["record"]
 		}]
-	}
-	res = await apply_writes_and_emit_firehose(request, req)
+	})
 	return web.json_response({
 		"commit": res["commit"],
 		"uri": res["results"][0]["uri"],
@@ -282,7 +281,7 @@ async def repo_create_record(request: web.Request):
 @authenticated
 async def repo_put_record(request: web.Request):
 	orig: dict = await request.json()
-	req = {
+	res = await apply_writes_and_emit_firehose(request, {
 		"repo": orig["repo"],
 		"validate": orig.get("validate"),
 		"swapCommit": orig.get("swapCommit"),
@@ -294,8 +293,7 @@ async def repo_put_record(request: web.Request):
 			"swapRecord": orig.get("swapRecord"),
 			"value": orig["record"]
 		}]
-	}
-	res = await apply_writes_and_emit_firehose(request, req)
+	})
 	return web.json_response({
 		"commit": res["commit"],
 		"uri": res["results"][0]["uri"],
@@ -307,7 +305,7 @@ async def repo_put_record(request: web.Request):
 @authenticated
 async def repo_delete_record(request: web.Request):
 	orig: dict = await request.json()
-	req = {
+	res = await apply_writes_and_emit_firehose(request, {
 		"repo": orig["repo"],
 		"validate": orig.get("validate"),
 		"swapCommit": orig.get("swapCommit"),
@@ -319,11 +317,32 @@ async def repo_delete_record(request: web.Request):
 			"swapRecord": orig.get("swapRecord"),
 			"value": orig["record"]
 		}]
-	}
-	res = await apply_writes_and_emit_firehose(request, req)
+	})
 	return web.json_response({
 		"commit": res["commit"]
 	})
+
+
+@routes.get("/xrpc/com.atproto.repo.describeRepo")
+async def repo_describe_repo(request: web.Request):
+	if "repo" not in request.query:
+		return web.HTTPBadRequest("missing repo")
+	did_or_handle = request.query["repo"]
+	with get_db(request).new_con(readonly=True) as con:
+		user_id, did, handle = con.execute(
+			"SELECT id, did, handle FROM user WHERE did=? OR handle=?",
+			(did_or_handle, did_or_handle),
+		).fetchone()
+		return web.json_response({
+			"handle": handle,
+			"did": did,
+			"didDoc": {}, # TODO
+			"collections": [
+				row[0] for row in
+				con.execute("SELECT DISTINCT(nsid) FROM record WHERE repo=?", (user_id,)) # TODO: is this query efficient? do we want an index?
+			],
+			"handleIsCorrect": True # TODO
+		})
 
 
 @routes.post("/xrpc/com.atproto.repo.uploadBlob")

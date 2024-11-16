@@ -120,8 +120,8 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 			if delta.prior_value:
 				# needed for blob decref
 				prior_value = con.execute(
-					"SELECT value FROM record WHERE repo=? AND path=?",
-					(user_id, delta.key)
+					"SELECT value FROM record WHERE repo=? AND nsid=? AND rkey=?",
+					(user_id,) + util.split_path(delta.key)
 				).fetchone()[0]
 			if delta.delta_type == DeltaType.CREATED:
 				new_record_cids.append(delta.later_value)
@@ -133,8 +133,8 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 				new_value = record_cbors[delta.later_value]
 				blob_incref_all(con, user_id, new_value, tid_now)
 				con.execute(
-					"INSERT INTO record (repo, path, cid, since, value) VALUES (?, ?, ?, ?, ?)",
-					(user_id, delta.key, bytes(delta.later_value), tid_now, new_value)
+					"INSERT INTO record (repo, nsid, rkey, cid, since, value) VALUES (?, ?, ?, ?, ?, ?)",
+					(user_id,) + util.split_path(delta.key) + (bytes(delta.later_value), tid_now, new_value)
 				)
 			elif delta.delta_type == DeltaType.UPDATED:
 				new_record_cids.append(delta.later_value)
@@ -147,8 +147,8 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 				blob_incref_all(con, user_id, new_value, tid_now) # important to incref before decref
 				blob_decref_all(con, user_id, prior_value)
 				con.execute(
-					"UPDATE record SET cid=?, since=?, value=? WHERE repo=? AND path=?",
-					(bytes(delta.later_value), tid_now, new_value, user_id, delta.key)
+					"UPDATE record SET cid=?, since=?, value=? WHERE repo=? AND nsid=? AND rkey=?",
+					(bytes(delta.later_value), tid_now, new_value, user_id) + util.split_path(delta.key)
 				)
 			elif delta.delta_type == DeltaType.DELETED:
 				firehose_ops.append({
@@ -158,8 +158,8 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 				})
 				blob_decref_all(con, user_id, prior_value)
 				con.execute(
-					"DELETE FROM record WHERE repo=? AND path=?",
-					(user_id, delta.key)
+					"DELETE FROM record WHERE repo=? AND nsid=? AND rkey=?",
+					(user_id,) + util.split_path(delta.key)
 				)
 			else:
 				raise Exception("unreachable")

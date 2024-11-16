@@ -2,6 +2,14 @@ import requests
 import os
 
 PDS = "http://localhost:8123"
+if 0:
+	TEST_DID = "did:web:alice.test"
+	TEST_HANDLE = "alice.test"
+	TEST_PASSWORD = "alice_pw"
+else:
+	TEST_DID = "did:plc:bwxddkvw5c6pkkntbtp2j4lx"
+	TEST_HANDLE = "local.dev.retr0.id"
+	TEST_PASSWORD = "lol"
 
 s = requests.session()
 
@@ -27,13 +35,13 @@ assert not r.ok
 
 r = s.post(
 	PDS + "/xrpc/com.atproto.server.createSession",
-	json={"identifier": "example.invalid", "password": "123"},
+	json={"identifier": "example.invalid", "password": "wrongPassword123"},
 )
 assert not r.ok
 
 r = s.post(
 	PDS + "/xrpc/com.atproto.server.createSession",
-	json={"identifier": "alice.test", "password": "123"},
+	json={"identifier": TEST_HANDLE, "password": "wrongPassword123"},
 )
 assert not r.ok
 
@@ -43,25 +51,25 @@ assert not r.ok
 # by handle
 r = s.post(
 	PDS + "/xrpc/com.atproto.server.createSession",
-	json={"identifier": "alice.test", "password": "alice_pw"},
+	json={"identifier": TEST_HANDLE, "password": TEST_PASSWORD},
 )
 print(r.text)
 r = r.json()
 print(r)
-assert r["did"] == "did:web:alice.test"
-assert r["handle"] == "alice.test"
+assert r["did"] == TEST_DID
+assert r["handle"] == TEST_HANDLE
 assert "accessJwt" in r
 assert "refreshJwt" in r
 
 # by did
 r = s.post(
 	PDS + "/xrpc/com.atproto.server.createSession",
-	json={"identifier": "did:web:alice.test", "password": "alice_pw"},
+	json={"identifier": TEST_DID, "password": TEST_PASSWORD},
 )
 r = r.json()
 print(r)
-assert r["did"] == "did:web:alice.test"
-assert r["handle"] == "alice.test"
+assert r["did"] == TEST_DID
+assert r["handle"] == TEST_HANDLE
 assert "accessJwt" in r
 assert "refreshJwt" in r
 
@@ -89,13 +97,13 @@ print(r.text)
 assert not r.ok
 
 
-r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": "did:web:alice.test"})
+r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": TEST_DID})
 assert r.ok
 
 
 for i in range(10):
 	r = s.post(PDS + "/xrpc/com.atproto.repo.applyWrites", headers=authn, json={
-		"repo": "did:web:alice.test",
+		"repo": TEST_DID,
 		"writes": [{
 			"$type": "com.atproto.repo.applyWrites#create",
 			"action": "create",
@@ -119,18 +127,18 @@ for _ in range(2): # test reupload is nop
 
 # get the blob refcount >0
 r = s.post(PDS + "/xrpc/com.atproto.repo.createRecord", headers=authn, json={
-	"repo": "did:web:alice.test",
+	"repo": TEST_DID,
 	"collection": "app.bsky.feed.post",
 	"record": {"myblob": res}
 })
 print(r.json())
 assert(r.ok)
 
-r = s.get(PDS + "/xrpc/com.atproto.sync.getBlob", params={"did": "did:web:alice.test", "cid": res["blob"]["ref"]["$link"]})
+r = s.get(PDS + "/xrpc/com.atproto.sync.getBlob", params={"did": TEST_DID, "cid": res["blob"]["ref"]["$link"]})
 downloaded_blob = r.content
 assert(downloaded_blob == blob)
 
-r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": "did:web:alice.test"})
+r = s.get(PDS + "/xrpc/com.atproto.sync.getRepo", params={"did": TEST_DID})
 assert r.ok
 open("repo.car", "wb").write(r.content)
 
