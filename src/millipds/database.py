@@ -131,7 +131,7 @@ class Database:
 		self.con.execute(
 			"""
 			CREATE TABLE firehose(
-				seq INTEGER PRIMARY KEY NOT NULL,
+				seq INTEGER PRIMARY KEY AUTOINCREMENT,
 				timestamp INTEGER NOT NULL,
 				msg BLOB NOT NULL
 			)
