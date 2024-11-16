@@ -487,20 +487,39 @@ async def sync_get_blob(request: web.Request):
 		return res
 
 
-@routes.get("/xrpc/com.atproto.sync.listRepos")
-async def sync_list_repos(request: web.Request):  # TODO: pagination
-	return web.json_response(
-		{
-			"repos": [
-				{
-					"did": did,
-					"head": head.encode("base32"),
-					"rev": rev,
-				}
-				for did, head, rev in get_db(request).list_repos()
-			]
-		}
-	)
+# TODO: this is mostly untested!!!
+@routes.get("/xrpc/com.atproto.sync.getBlocks")
+async def sync_get_blocks(request: web.Request):
+	did = request.query.get("did")
+	if did is None:
+		return web.HTTPBadRequest(text="no did specified")
+	try:
+		cids = [bytes(cbrrr.CID.decode(cid)) for cid in request.query.getall("cids")]
+	except ValueError:
+		return web.HTTPBadRequest(text="invalid cid")
+	db = get_db(request)
+	row = db.con.execute("SELECT id FROM user WHERE did=?", (did,)).fetchone()
+	if row is None:
+		return web.HTTPNotFound(text="did not found")
+	user_id = row[0]
+	res = web.StreamResponse()
+	res.content_type = "application/vnd.ipld.car"
+	await res.prepare(request)
+	await res.write(util.serialize_car_header())
+	for cid in cids:
+		# we don't use executemany so as not to hog the db
+		for value, *_ in db.con.execute(
+			"""
+				SELECT commit_bytes FROM user WHERE head=? AND id=?
+				UNION SELECT value FROM mst WHERE cid=? AND repo=?
+				UNION SELECT value FROM record WHERE cid=? AND repo=?
+			""",
+			(cid, user_id) * 3
+		):
+			await res.write(util.serialize_car_entry(cid, value))
+	await res.write_eof()
+	return res
+
 
 @routes.get("/xrpc/com.atproto.sync.getLatestCommit")
 async def sync_get_latest_commit(request: web.Request):
@@ -599,7 +618,22 @@ async def sync_list_blobs(request: web.Request):
 	} | ({
 		"cursor": id_
 	} if len(cids) == limit else {}))
-	
+
+
+@routes.get("/xrpc/com.atproto.sync.listRepos")
+async def sync_list_repos(request: web.Request):  # TODO: pagination
+	return web.json_response(
+		{
+			"repos": [
+				{
+					"did": did,
+					"head": head.encode("base32"),
+					"rev": rev,
+				}
+				for did, head, rev in get_db(request).list_repos()
+			]
+		}
+	)
 
 
 TOOSLOW_MSG = (

@@ -3,7 +3,7 @@ import time
 import hashlib
 import datetime
 import itertools
-from typing import BinaryIO, Iterator, Tuple
+from typing import BinaryIO, Iterator, Tuple, Optional
 
 import cbrrr
 from atmst.blockstore.car_file import encode_varint
@@ -90,10 +90,11 @@ def split_path(path: str) -> Tuple[str, str]: # "nsid/rkey" to ("nsid", "rkey")
 
 
 # TODO: it's a little silly that we implement CAR serialization twice. unify them?
-def serialize_car_header(root_bytes: bytes) -> bytes:
-	header_bytes = cbrrr.encode_dag_cbor(
-		{"version": static_config.CAR_VERSION_1, "roots": [cbrrr.CID(root_bytes)]}
-	)
+def serialize_car_header(root_bytes: Optional[bytes]=None) -> bytes:
+	header_bytes = cbrrr.encode_dag_cbor({
+			"version": static_config.CAR_VERSION_1,
+			"roots": [cbrrr.CID(root_bytes)] if root_bytes else []
+	})
 	return encode_varint(len(header_bytes)) + header_bytes
 
 
