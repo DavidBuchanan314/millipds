@@ -503,6 +503,24 @@ async def sync_list_repos(request: web.Request):  # TODO: pagination
 	)
 
 
+@routes.get("/xrpc/com.atproto.sync.getRepoStatus")
+async def sync_get_repo_status(request: web.Request):
+	did = request.query.get("did")
+	if did is None:
+		return web.HTTPBadRequest(text="no did specified")
+	row = get_db(request).con.execute(
+		"SELECT rev FROM user WHERE did=?",
+		(did,)
+	).fetchone()
+	if not row:
+		return web.HTTPNotFound("did not found")
+	return web.json_response({
+		"did": did,
+		"active": True,
+		"rev": row[0]
+	})
+
+
 @routes.get("/xrpc/com.atproto.sync.getRepo")
 async def sync_get_repo(request: web.Request):
 	did = request.query.get("did")
