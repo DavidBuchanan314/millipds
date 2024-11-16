@@ -10,7 +10,7 @@ I'm never planning on replacing sqlite with anything else, so the tight coupling
 """
 
 import io
-from typing import List, TypedDict, Literal, NotRequired, Optional
+from typing import List, TypedDict, Literal, NotRequired, Optional, Tuple, Set
 import apsw
 import aiohttp.web
 
@@ -43,7 +43,7 @@ WriteOp = TypedDict("WriteOp", {
 # There's probably some scope for refactoring, but I like the "directness" of it.
 # The work it does is inherently complex, i.e. the atproto MST record commit logic
 # The MST logic itself is hidden away inside the `atmst` module.
-def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Optional[str]):
+def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Optional[str]) -> Tuple[bytes, int, bytes]:
 	with db.new_con() as con: # one big transaction (we could perhaps work in two phases, prepare (via read-only conn) then commit?)
 		db_bs = DBBlockStore(con, repo)
 		mem_bs = MemoryBlockStore()
@@ -116,6 +116,7 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 		# if e.g. a record was created and then immediately deleted, or modified multiple times.
 		new_record_cids = []
 		firehose_ops = []
+		firehose_blobs = set()
 		for delta in record_diff(ns, created, deleted):
 			if delta.prior_value:
 				# needed for blob decref
@@ -131,7 +132,7 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 					"action": "create"
 				})
 				new_value = record_cbors[delta.later_value]
-				blob_incref_all(con, user_id, new_value, tid_now)
+				firehose_blobs |= blob_incref_all(con, user_id, new_value, tid_now)
 				con.execute(
 					"INSERT INTO record (repo, nsid, rkey, cid, since, value) VALUES (?, ?, ?, ?, ?, ?)",
 					(user_id,) + util.split_path(delta.key) + (bytes(delta.later_value), tid_now, new_value)
@@ -144,7 +145,7 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 					"action": "update"
 				})
 				new_value = record_cbors[delta.later_value]
-				blob_incref_all(con, user_id, new_value, tid_now) # important to incref before decref
+				firehose_blobs |= blob_incref_all(con, user_id, new_value, tid_now) # important to incref before decref
 				blob_decref_all(con, user_id, prior_value)
 				con.execute(
 					"UPDATE record SET cid=?, since=?, value=? WHERE repo=? AND nsid=? AND rkey=?",
@@ -212,7 +213,7 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 			"prev": None,
 			"repo": repo,
 			"time": util.iso_string_now(),
-			"blobs": [],  # TODO!!!
+			"blobs": list(firehose_blobs),
 			"blocks": car.getvalue(),
 			"commit": commit_cid,
 			"rebase": False,  # deprecated but still required
@@ -235,16 +236,19 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 			"results": results
 		}
 
-		return applywrites_res, firehose_bytes
+		return applywrites_res, firehose_seq, firehose_bytes
 
 
 # and also set `since`, if previously unset
 # NB: both of these will incref/decref the same blob multiple times, if a record contains the same blob multiple times.
 # this is mildly sub-optimal perf-wise but it keeps the code simple.
 # (why would you reference the same blob multiple times anyway?)
-def blob_incref_all(con: apsw.Connection, user_id: int, record_bytes: bytes, tid: str):
+def blob_incref_all(con: apsw.Connection, user_id: int, record_bytes: bytes, tid: str) -> Set[cbrrr.CID]:
+	new_blobs = set()
 	for ref in util.enumerate_blob_cids(cbrrr.decode_dag_cbor(record_bytes)):
+		new_blobs.add(ref)
 		blob_incref(con, user_id, ref, tid)
+	return new_blobs
 
 def blob_decref_all(con: apsw.Connection, user_id: int, record_bytes: bytes):
 	for ref in util.enumerate_blob_cids(cbrrr.decode_dag_cbor(record_bytes)):

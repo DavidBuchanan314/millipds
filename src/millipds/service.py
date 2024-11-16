@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, Set, Tuple
 import importlib.metadata
 import logging
 import asyncio
@@ -226,26 +226,28 @@ async def server_get_session(request: web.Request):
 		}
 	)
 
-async def firehose_broadcast(request: web.Request, msg: bytes):
-	async with get_firehose_queues_lock(request):
+async def firehose_broadcast(request: web.Request, msg: Tuple[int, bytes]):
+	async with get_firehose_queues_lock(request): # hm, everything in here is synchronous so we could drop the lock
 		for queue in get_firehose_queues(request):
 			try:
-				queue.put_nowait(msg) # hm, this is synchronous so we could drop the lock
-			except asyncio.QueueFull:
-				pass
-				# TODO: kill the client with tooslow error!
+				queue.put_nowait(msg)
+			except asyncio.QueueFull: # this implies the client wasn't reading our messages fast enough
+				while not queue.empty(): # flush what's left of the queue
+					queue.get_nowait()
+				queue.put_nowait(None) # signal end-of-stream
+				get_firehose_queues(request).remove(queue) # don't give this queue any more events
 
 
 async def apply_writes_and_emit_firehose(request: web.Request, req_json: dict) -> dict:
 	if req_json["repo"] != request["authed_did"]:
 		raise web.HTTPUnauthorized(text="not authed for that repo")
-	res, firehose_res = repo_ops.apply_writes(
+	res, firehose_seq, firehose_bytes = repo_ops.apply_writes(
 		get_db(request),
 		request["authed_did"],
 		req_json["writes"],
 		req_json.get("swapCommit")
 	)
-	await firehose_broadcast(request, firehose_res)
+	await firehose_broadcast(request, (firehose_seq, firehose_bytes))
 	return res
 
 
@@ -333,13 +335,17 @@ async def repo_describe_repo(request: web.Request):
 			"SELECT id, did, handle FROM user WHERE did=? OR handle=?",
 			(did_or_handle, did_or_handle),
 		).fetchone()
+
 		return web.json_response({
 			"handle": handle,
 			"did": did,
 			"didDoc": {}, # TODO
 			"collections": [
 				row[0] for row in
-				con.execute("SELECT DISTINCT(nsid) FROM record WHERE repo=?", (user_id,)) # TODO: is this query efficient? do we want an index?
+				con.execute(
+					"SELECT DISTINCT(nsid) FROM record WHERE repo=?",
+					(user_id,)
+				) # TODO: is this query efficient? do we want an index?
 			],
 			"handleIsCorrect": True # TODO
 		})
@@ -469,7 +475,7 @@ async def sync_get_blob(request: web.Request):
 		res = web.StreamResponse()
 		res.content_type = "application/octet-stream"
 		await res.prepare(request)
-		for blob_part, *_ in con.execute(
+		for blob_part, *_ in con.execute( # TODO: would bad things happen to the db if a client started reading and then blocked?
 			"SELECT data FROM blob_part WHERE blob=? ORDER BY idx",
 			(blob_id[0],)
 		):
@@ -501,6 +507,7 @@ async def sync_get_repo(request: web.Request):
 		return web.HTTPBadRequest(text="no did specified")
 	since = request.query.get("since", "") # empty string is "lowest" possible value wrt string comparison
 
+	# TODO: do bad things happen if a client holds the connection open for a long time?
 	with get_db(request).new_con(readonly=True) as con: # make sure we have a consistent view of the repo
 		try:
 			user_id, head, commit_bytes = con.execute(
@@ -531,6 +538,85 @@ async def sync_get_repo(request: web.Request):
 	await res.write_eof()
 	return res
 
+TOOSLOW_MSG = (
+	cbrrr.encode_dag_cbor({"op": -1}) +
+	cbrrr.encode_dag_cbor({
+		"error": "ConsumerTooSlow",
+		"message": "you're not reading my events fast enough :("
+	})
+)
+
+FUTURECURSOR_MSG = (
+	cbrrr.encode_dag_cbor({"op": -1}) +
+	cbrrr.encode_dag_cbor({
+		"error": "FutureCursor",
+		"message": "woah, are you from the future?"
+	})
+)
+
+# https://atproto.com/specs/event-stream
+# XXX: this whole implementation is extremely janky right now, and I think has a race condition in the
+# cutover between backfilling and live-tailing. I just wanted to start federating™
+@routes.get("/xrpc/com.atproto.sync.subscribeRepos")
+async def sync_subscribe_repos(request: web.Request):
+	logger.info(f"NEW FIREHOSE CLIENT {request.remote} {request.headers.get('x-forwarded-for')} {request.query}")
+	ws = web.WebSocketResponse()
+	try:
+		await ws.prepare(request) # TODO: should this be outside of try?
+
+		last_sent_seq = None
+		if "cursor" in request.query:
+			# TODO: try to limit number of concurrent backfillers? (it's more expensive than livetailing)
+			cursor = int(request.query["cursor"])
+			db = get_db(request)
+			while True:
+				# we read one at a time to force gaps between reads - could be a perf win to read in small batches
+				# TODO: what happens if the reader is slow, falling outside of the backfill window?
+				row = db.con.execute(
+					"SELECT seq, msg FROM firehose WHERE seq>? ORDER BY seq LIMIT 1", 
+					(cursor,)
+				).fetchone()
+				if row is None:
+					# XXX: we could drop messages arriving between the db read, and setting up our livetail queue
+					# I think we can solve this by having some sort of ringbuffer that always holds the last N
+					# messages, which we check *after* setting up the queue.
+					# or maybe we should do an extra db read after setting up the queue? maybe we could be reading a stale snapshot of the db though.
+					break
+				cursor, msg = row
+				await ws.send_bytes(msg)
+				last_sent_seq = cursor
+
+			if last_sent_seq is None:
+				await ws.send_bytes(FUTURECURSOR_MSG)
+				await ws.close()
+				return ws
+	except ConnectionResetError: # TODO: other types of error???
+		await ws.close()
+		return ws
+
+	queue: asyncio.Queue[Optional[Tuple[int, bytes]]] = asyncio.Queue(static_config.FIREHOSE_QUEUE_SIZE)
+	async with get_firehose_queues_lock(request):
+		get_firehose_queues(request).add(queue)
+
+	try:
+		# live-tailing
+		while True:
+			msg = await queue.get() # TODO: client may have closed the connection, but we'll hang here if there are no new events coming through. I think this is fine, although it makes the logs a little confusing.
+			if msg is None:
+				await ws.send_bytes(TOOSLOW_MSG)
+				break
+			seq, msg_bytes = msg
+			# if seq < cursor, raise FutureCursor?
+			# TODO: more cutover logic here
+			await ws.send_bytes(msg_bytes)
+	except ConnectionResetError:
+		pass
+	finally:
+		async with get_firehose_queues_lock(request):
+			get_firehose_queues(request).discard(queue) # may have already been removed due to tooslow
+
+	await ws.close()
+	return ws
 
 @authenticated
 async def static_appview_proxy(request: web.Request):
@@ -580,7 +666,7 @@ def construct_app(routes, db: database.Database) -> web.Application:
 	app["MILLIPDS_AIOHTTP_CLIENT"] = (
 		aiohttp.ClientSession()
 	)  # should this be dependency-injected?
-	app["MILLIPDS_FIREHOSE_QUEUES"] = []
+	app["MILLIPDS_FIREHOSE_QUEUES"] = set()
 	app["MILLIPDS_FIREHOSE_QUEUES_LOCK"] = asyncio.Lock()
 	app.add_routes(routes)
 
@@ -651,7 +737,7 @@ def get_db(req: web.Request) -> database.Database:
 def get_client(req: web.Request) -> aiohttp.ClientSession:
 	return req.app["MILLIPDS_AIOHTTP_CLIENT"]
 
-def get_firehose_queues(req: web.Request) -> List[asyncio.Queue]:
+def get_firehose_queues(req: web.Request) -> Set[asyncio.Queue[Optional[Tuple[int, bytes]]]]:
 	return req.app["MILLIPDS_FIREHOSE_QUEUES"]
 
 def get_firehose_queues_lock(req: web.Request) -> asyncio.Lock:
