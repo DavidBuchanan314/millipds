@@ -94,13 +94,15 @@ async def actor_put_preferences(request: web.Request):
 async def identity_resolve_handle(request: web.Request):
 	# TODO: forward to appview(?) if we can't answer?
 	handle = request.query.get("handle")
-	if not isinstance(handle, str):
-		print(handle)
+	if handle is None:
 		return web.HTTPBadRequest(text="missing or invalid handle")
 	did = get_db(request).did_by_handle(handle)
 	if not did:
 		return web.HTTPNotFound(text="no user by that handle exists on this PDS")
 	return web.json_response({"did": did})
+
+
+
 
 
 @routes.get("/xrpc/com.atproto.server.describeServer")
@@ -212,6 +214,35 @@ def authenticated(handler):
 		return handler(request)
 
 	return authentication_handler
+
+
+@routes.post("/xrpc/com.atproto.identity.updateHandle")
+@authenticated
+async def identity_update_handle(request: web.Request):
+	req_json: dict = await request.json()
+	handle = req_json.get("handle")
+	if handle is None:
+		return web.HTTPBadRequest(text="missing or invalid handle")
+	# TODO: actually validate it, and update the db!!!
+	# (I'm writing this half-baked version just so I can send firehose #identity events)
+	with get_db(request).new_con() as con:
+		# TODO: refactor to avoid duplicated logic between here and apply_writes
+		firehose_seq = con.execute("SELECT IFNULL(MAX(seq), 0) + 1 FROM firehose").fetchone()[0]
+		firehose_bytes = cbrrr.encode_dag_cbor({
+			"t": "#identity",
+			"op": 1
+		}) + cbrrr.encode_dag_cbor({
+			"seq": firehose_seq,
+			"did": request["authed_did"],
+			"time": util.iso_string_now(),
+			"handle": handle
+		})
+		con.execute(
+			"INSERT INTO firehose (seq, timestamp, msg) VALUES (?, ?, ?)",
+			(firehose_seq, 0, firehose_bytes) # TODO: put sensible timestamp here...
+		)
+	await firehose_broadcast(request, (firehose_seq, firehose_bytes))
+	return web.Response()
 
 
 @routes.get("/xrpc/com.atproto.server.getSession")
