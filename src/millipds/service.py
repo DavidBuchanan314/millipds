@@ -68,7 +68,8 @@ async def hello(request: web.Request):
 
 Hello! This is an ATProto PDS instance, running millipds v{version}
 
-https://github.com/DavidBuchanan314/millipds"""
+https://github.com/DavidBuchanan314/millipds
+"""
 
 	return web.Response(text=msg)
 

@@ -1,7 +1,13 @@
 # millipds [WIP]
-A successor to picopds
+A from-scratch atproto PDS implementation that dreams of becoming "production grade" software (it isn't, yet).
 
-NOTE: Barely any code has been written here yet! It's still in the planning phase. Check out [picopds](https://github.com/davidBuchanan314/picopds) if you want to see something that works.
+millipds is a successor to [DavidBuchanan314/picopds](https://github.com/davidBuchanan314/picopds), which is even more minimalist, but hacky and no longer maintained.
+
+It works to the extent that it can "federate" with the rest of the atproto network, but there are a lot of rough edges still. I wouldn't currently recommend using it for anything other than testing or experimentation (although, due to the nature of atproto, if you don't like it you can seamlessly migrate your whole account elsewhere).
+
+It depends on [DavidBuchanan314/atmst](https://github.com/DavidBuchanan314/atmst) for implementing logic related to the Merkle Search Tree data structure, and [DavidBuchanan314/dag-cbrrr](https://github.com/DavidBuchanan314/dag-cbrrr) for DAG-CBOR parsing and serialisation.
+
+See https://github.com/DavidBuchanan314/millipds/issues/12 for an incomplete list of differences between this implementation and the [reference implementation](https://github.com/bluesky-social/atproto/tree/main/packages/pds).
 
 ### Local dev install:
 
