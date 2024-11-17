@@ -13,6 +13,7 @@ import io
 from typing import List, TypedDict, Literal, NotRequired, Optional, Tuple, Set
 import apsw
 import aiohttp.web
+import base64
 
 import cbrrr
 
@@ -83,7 +84,7 @@ WriteOp = TypedDict("WriteOp", {
 	"rkey": NotRequired[str], # required for update, delete
 	"validate": NotRequired[bool],
 	"swapRecord": NotRequired[str],
-	"value": NotRequired[dict] # not required for delete
+	"value": NotRequired[dict|str] # not required for delete - str is for base64-encoded dag-cbor
 })
 
 # This is perhaps the most complex function in the whole codebase.
@@ -127,7 +128,14 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 				elif op.get("swapRecord"): # only applies to #update
 					if cbrrr.CID.decode(op["swapRecord"]) != prev_cid:
 						raise aiohttp.web.HTTPBadRequest(text="swapRecord did not match")
-				value_cbor = cbrrr.encode_dag_cbor(op["value"], atjson_mode=True)
+
+				if isinstance(op["value"], dict): # normal
+					value_cbor = cbrrr.encode_dag_cbor(op["value"], atjson_mode=True)
+				elif isinstance(op["value"], str): # base64 dag-cbor record extension
+					value_cbor = base64.b64decode(op["value"])
+				else:
+					raise Exception("invalid record value type")
+
 				value_cid = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(value_cbor)
 				record_cbors[value_cid] = value_cbor
 				next_root = wrangler.put_record(prev_root, path, value_cid)

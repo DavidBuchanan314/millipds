@@ -134,3 +134,8 @@ sudo systemctl enable millipds # make it start on every boot
 systemctl status millipds # check that it's running
 sudo systemctl reload nginx # get nginx to see your new config
 ```
+
+Useful command for watching the logs:
+```sh
+sudo journalctl -u millipds.service -f
+```
