@@ -745,9 +745,12 @@ async def sync_subscribe_repos(request: web.Request):
 				last_sent_seq = cursor
 
 			if last_sent_seq is None:
-				await ws.send_bytes(FUTURECURSOR_MSG)
-				await ws.close()
-				return ws
+				current_seq = db.con.execute("SELECT IFNULL(MAX(seq), 0) FROM firehose").fetchone()[0]
+				if cursor > current_seq:
+					await ws.send_bytes(FUTURECURSOR_MSG)
+					await ws.close()
+					return ws
+				# else if cursor == current_seq, fall thru to livetailing (someone was reconnecting where they left off)
 	except ConnectionResetError: # TODO: other types of error???
 		await ws.close()
 		return ws
