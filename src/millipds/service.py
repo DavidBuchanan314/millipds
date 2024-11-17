@@ -400,7 +400,8 @@ async def repo_get_record(request: web.Request):
 		(did_or_handle, did_or_handle, collection, rkey)
 	).fetchone()
 	if row is None:
-		return web.HTTPNotFound(text="record not found")
+		return await static_appview_proxy(request) # forward to appview
+		#return web.HTTPNotFound(text="record not found")
 	cid_out, value = row
 	cid_out = cbrrr.CID(cid_out)
 	if cid_in is not None:
