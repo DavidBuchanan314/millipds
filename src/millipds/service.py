@@ -835,6 +835,7 @@ def construct_app(routes, db: database.Database) -> web.Application:
 			# web.post("/xrpc/app.bsky.actor.putPreferences", static_appview_proxy),
 			web.get("/xrpc/app.bsky.actor.getProfile", static_appview_proxy),
 			web.get("/xrpc/app.bsky.actor.getProfiles", static_appview_proxy),
+			web.get("/xrpc/app.bsky.actor.getSuggestions", static_appview_proxy),
 			web.get("/xrpc/app.bsky.actor.searchActorsTypeahead", static_appview_proxy),
 			web.get("/xrpc/app.bsky.labeler.getServices", static_appview_proxy),
 			web.get(
