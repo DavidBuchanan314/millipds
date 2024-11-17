@@ -731,7 +731,7 @@ async def sync_subscribe_repos(request: web.Request):
 				# we read one at a time to force gaps between reads - could be a perf win to read in small batches
 				# TODO: what happens if the reader is slow, falling outside of the backfill window?
 				row = db.con.execute(
-					"SELECT seq, msg FROM firehose WHERE seq>? ORDER BY seq LIMIT 1", 
+					"SELECT seq, msg FROM firehose WHERE seq>=? ORDER BY seq LIMIT 1",
 					(cursor,)
 				).fetchone()
 				if row is None:
