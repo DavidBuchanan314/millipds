@@ -53,7 +53,7 @@ def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 		ns = NodeStore(bs)
 		walker = NodeWalker(ns, commit["data"])
 
-		logger.info(path)
+		#logger.info(path)
 		record_cid = walker.find_value(path)
 		logger.info(walker.stack)
 		if record_cid is None:
@@ -124,7 +124,7 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 				if optype == "com.atproto.repo.applyWrites#create":
 					if prev_cid is not None:
 						raise aiohttp.web.HTTPBadRequest(text="record already exists")
-				elif "swapRecord" in op: # only applies to #update
+				elif op.get("swapRecord"): # only applies to #update
 					if cbrrr.CID.decode(op["swapRecord"]) != prev_cid:
 						raise aiohttp.web.HTTPBadRequest(text="swapRecord did not match")
 				value_cbor = cbrrr.encode_dag_cbor(op["value"], atjson_mode=True)
@@ -138,7 +138,7 @@ def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Op
 					"validationStatus": "unknown" # we are not currently aware of the concept of a lexicon!
 				})
 			elif optype == "com.atproto.repo.applyWrites#delete":
-				if "swapRecord" in op:
+				if op.get("swapRecord"):
 					if cbrrr.CID.decode(op["swapRecord"]) != prev_cid:
 						raise aiohttp.web.HTTPBadRequest(text="swapRecord did not match")
 				next_root = wrangler.del_record(prev_root, path)

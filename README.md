@@ -73,7 +73,8 @@ After=network.target
 Type=simple
 Restart=on-failure
 User=millipds
-ExecStart=/opt/millipds/.venv/bin/millipds --sock_path=/run/millipds/millipds.sock
+WorkingDirectory=/opt/millipds
+ExecStart=/opt/millipds/.venv/bin/millipds run --sock_path=/run/millipds/millipds.sock
 RuntimeDirectory=millipds
 
 [Install]
