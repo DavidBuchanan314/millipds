@@ -76,8 +76,9 @@ https://github.com/DavidBuchanan314/millipds"""
 # not a spec'd endpoint, but the reference impl has this too
 @routes.get("/xrpc/_health")
 async def health(request: web.Request):
+	version = importlib.metadata.version("millipds")
 	return web.json_response({
-		"version": "millipds v" + importlib.metadata.version("millipds")
+		"version": f"[ millipds v{version} ](https://github.com/DavidBuchanan314/millipds)"
 	})
 
 # we should not be implementing bsky-specific logic here!
