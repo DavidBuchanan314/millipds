@@ -5,6 +5,7 @@ import asyncio
 import aiohttp_cors
 import time
 import os
+import io
 import json
 import hashlib
 
@@ -328,7 +329,7 @@ async def repo_delete_record(request: web.Request):
 @routes.get("/xrpc/com.atproto.repo.describeRepo")
 async def repo_describe_repo(request: web.Request):
 	if "repo" not in request.query:
-		return web.HTTPBadRequest("missing repo")
+		return web.HTTPBadRequest(text="missing repo")
 	did_or_handle = request.query["repo"]
 	with get_db(request).new_con(readonly=True) as con:
 		user_id, did, handle = con.execute(
@@ -354,11 +355,11 @@ async def repo_describe_repo(request: web.Request):
 @routes.get("/xrpc/com.atproto.repo.getRecord")
 async def repo_get_record(request: web.Request):
 	if "repo" not in request.query:
-		return web.HTTPBadRequest("missing repo")
+		return web.HTTPBadRequest(text="missing repo")
 	if "collection" not in request.query:
-		return web.HTTPBadRequest("missing collection")
+		return web.HTTPBadRequest(text="missing collection")
 	if "rkey" not in request.query:
-		return web.HTTPBadRequest("missing rkey")
+		return web.HTTPBadRequest(text="missing rkey")
 	did_or_handle = request.query["repo"]
 	collection = request.query["collection"]
 	rkey = request.query["rkey"]
@@ -369,12 +370,12 @@ async def repo_get_record(request: web.Request):
 		(did_or_handle, did_or_handle, collection, rkey)
 	).fetchone()
 	if row is None:
-		return web.HTTPNotFound("record not found")
+		return web.HTTPNotFound(text="record not found")
 	cid_out, value = row
 	cid_out = cbrrr.CID(cid_out)
 	if cid_in is not None:
 		if cbrrr.CID.decode(cid_in) != cid_out:
-			return web.HTTPNotFound("record not found with matching CID")
+			return web.HTTPNotFound(text="record not found with matching CID")
 	return web.json_response({
 		"uri": f"at://{did_or_handle}/{collection}/{rkey}", # TODO rejig query to get the did out always,
 		"cid": cid_out.encode(),
@@ -386,9 +387,9 @@ async def repo_get_record(request: web.Request):
 async def repo_list_records(request: web.Request):
 	# TODO: reverse
 	if "repo" not in request.query:
-		return web.HTTPBadRequest("missing repo")
+		return web.HTTPBadRequest(text="missing repo")
 	if "collection" not in request.query:
-		return web.HTTPBadRequest("missing collection")
+		return web.HTTPBadRequest(text="missing collection")
 	limit = int(request.query.get("limit", 50))
 	if limit < 1 or limit > 100:
 		return web.HTTPBadRequest(text="limit out of range")
@@ -531,12 +532,37 @@ async def sync_get_latest_commit(request: web.Request):
 		(did,)
 	).fetchone()
 	if row is None:
-		return web.HTTPNotFound("did not found")
+		return web.HTTPNotFound(text="did not found")
 	rev, head = row
 	return web.json_response({
 		"cid": cbrrr.CID(head).encode(),
 		"rev": rev
 	})
+
+
+@routes.get("/xrpc/com.atproto.sync.getRecord")
+async def sync_get_record(request: web.Request):
+	if "did" not in request.query:
+		return web.HTTPBadRequest(text="missing did")
+	if "collection" not in request.query:
+		return web.HTTPBadRequest(text="missing collection")
+	if "rkey" not in request.query:
+		return web.HTTPBadRequest(text="missing rkey")
+
+	# we don't stream the response because it should be compact-ish
+	car = repo_ops.get_record(
+		get_db(request),
+		request.query["did"],
+		request.query["collection"] + "/" + request.query["rkey"]
+	)
+
+	if car is None:
+		return web.HTTPNotFound(text="did or record not found")
+	
+	return web.Response(
+		body=car,
+		content_type="application/vnd.ipld.car"
+	)
 
 
 @routes.get("/xrpc/com.atproto.sync.getRepoStatus")
@@ -549,7 +575,7 @@ async def sync_get_repo_status(request: web.Request):
 		(did,)
 	).fetchone()
 	if row is None:
-		return web.HTTPNotFound("did not found")
+		return web.HTTPNotFound(text="did not found")
 	return web.json_response({
 		"did": did,
 		"active": True,

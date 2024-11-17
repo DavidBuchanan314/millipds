@@ -29,6 +29,53 @@ from . import crypto
 import logging
 logger = logging.getLogger(__name__)
 
+
+# record plus full merkle path as CAR
+def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
+	with db.new_con(readonly=True) as con:
+		row = con.execute(
+			"SELECT id, head, commit_bytes FROM user WHERE did=?",
+			(did,)
+		).fetchone()
+
+		if row is None:
+			logger.info("did not found")
+			return None
+
+		user_id, head, commit_bytes = row
+		car = io.BytesIO()
+		car.write(util.serialize_car_header(head))
+		car.write(util.serialize_car_entry(head, commit_bytes))
+
+		commit = cbrrr.decode_dag_cbor(commit_bytes)
+
+		bs = DBBlockStore(con, did)
+		ns = NodeStore(bs)
+		walker = NodeWalker(ns, commit["data"])
+
+		logger.info(path)
+		record_cid = walker.find_value(path)
+		logger.info(walker.stack)
+		if record_cid is None:
+			logger.info("record not found")
+			return None
+		
+		for frame in walker.stack:
+			node = frame.node
+			car.write(util.serialize_car_entry(bytes(node.cid), node.serialised))
+		
+		record_cid_bytes = bytes(record_cid)
+
+		record, *_ = con.execute(
+			"SELECT value FROM record WHERE repo=? AND cid=?",
+			(user_id, record_cid_bytes)
+		).fetchone()
+
+		car.write(util.serialize_car_entry(record_cid_bytes, record))
+
+		return car.getvalue()
+
+
 # https://github.com/bluesky-social/atproto/blob/main/lexicons/com/atproto/repo/applyWrites.json
 WriteOp = TypedDict("WriteOp", {
 	"$type": Literal["com.atproto.repo.applyWrites#create", "com.atproto.repo.applyWrites#update", "com.atproto.repo.applyWrites#delete"],
