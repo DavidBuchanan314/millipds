@@ -655,6 +655,7 @@ async def sync_list_repos(request: web.Request):  # TODO: pagination
 					"did": did,
 					"head": head.encode("base32"),
 					"rev": rev,
+					"active": True
 				}
 				for did, head, rev in get_db(request).list_repos()
 			]
