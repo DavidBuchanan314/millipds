@@ -349,7 +349,6 @@ async def repo_delete_record(request: web.Request):
 			"rkey": orig["rkey"],
 			"validate": orig.get("validate"),
 			"swapRecord": orig.get("swapRecord"),
-			"value": orig["record"]
 		}]
 	})
 	return web.json_response({
@@ -806,7 +805,7 @@ async def static_appview_proxy(request: web.Request):
 	elif request.method == "POST":
 		request_body = await request.read()  # TODO: streaming?
 		async with get_client(request).post(
-			appview_pfx + request.path, data=request_body, headers=authn
+			appview_pfx + request.path, data=request_body, headers=(authn|{"Content-Type": request.content_type})
 		) as r:
 			body_bytes = await r.read()  # TODO: streaming?
 			return web.Response(
