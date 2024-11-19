@@ -56,7 +56,7 @@ def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 
 		#logger.info(path)
 		record_cid = walker.find_value(path)
-		logger.info(walker.stack)
+		#logger.info(walker.stack)
 		if record_cid is None:
 			logger.info("record not found")
 			return None
