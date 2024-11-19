@@ -74,6 +74,25 @@ https://github.com/DavidBuchanan314/millipds
 	return web.Response(text=msg)
 
 
+# example: https://shiitake.us-east.host.bsky.network/.well-known/oauth-protected-resource
+@routes.get("/.well-known/oauth-protected-resource")
+async def oauth_protected_resource(request: web.Request):
+	cfg = get_db(request).config
+	return web.json_response({
+		"resource": cfg["pds_pfx"],
+		"authorization_servers": [ cfg["pds_pfx"] ], # we are our own auth server
+		"scopes_supported": [],
+		"bearer_methods_supported": [ "header" ],
+		"resource_documentation": "https://atproto.com"
+	})
+
+
+# example: https://bsky.social/.well-known/oauth-authorization-server
+@routes.get("/.well-known/oauth-authorization-server")
+async def oauth_authorization_server(request: web.Request):
+	return web.json_response({"TODO": "TODO"})
+
+
 # not a spec'd endpoint, but the reference impl has this too
 @routes.get("/xrpc/_health")
 async def health(request: web.Request):
