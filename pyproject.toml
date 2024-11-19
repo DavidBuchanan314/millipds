@@ -1,12 +1,13 @@
 [build-system]
 requires = [
-	"setuptools>=61.0",
+	"setuptools>=61.0", "setuptools_scm>=8"
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "millipds"
-version = "0.0.1"
+#version = "0.0.1"
+dynamic = ["version"]
 authors = [
  	{ name="David Buchanan", email="d@vidbuchanan.co.uk" },
 ]
@@ -45,3 +46,5 @@ millipds = "millipds.__main__:main"
 
 [tool.ruff.format]
 indent-style = "tab"
+
+[tool.setuptools_scm]
