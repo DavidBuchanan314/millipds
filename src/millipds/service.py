@@ -98,7 +98,7 @@ async def oauth_authorization_server(request: web.Request):
 async def health(request: web.Request):
 	version = importlib.metadata.version("millipds")
 	return web.json_response({
-		"version": f"[ millipds v{version} ](https://github.com/DavidBuchanan314/millipds)"
+		"version": f"millipds v{version}"
 	})
 
 # we should not be implementing bsky-specific logic here!
