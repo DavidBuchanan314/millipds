@@ -437,7 +437,6 @@ async def repo_get_record(request: web.Request):
 
 @routes.get("/xrpc/com.atproto.repo.listRecords")
 async def repo_list_records(request: web.Request):
-	# TODO: reverse
 	if "repo" not in request.query:
 		return web.HTTPBadRequest(text="missing repo")
 	if "collection" not in request.query:
@@ -445,13 +444,21 @@ async def repo_list_records(request: web.Request):
 	limit = int(request.query.get("limit", 50))
 	if limit < 1 or limit > 100:
 		return web.HTTPBadRequest(text="limit out of range")
-	cursor = request.query.get("cursor", "")
+	reverse = request.query.get("reverse") == "true"
+	cursor = request.query.get("cursor", "" if reverse else "\xff")
 	did_or_handle = request.query["repo"]
 	collection = request.query["collection"]
 	records = []
 	db = get_db(request)
 	for rkey, cid, value in db.con.execute(
-		"SELECT rkey, cid, value FROM record WHERE repo=(SELECT id FROM user WHERE did=? OR handle=?) AND nsid=? AND rkey>? ORDER BY rkey LIMIT ?",
+		f"""
+			SELECT rkey, cid, value
+			FROM record
+			WHERE repo=(SELECT id FROM user WHERE did=? OR handle=?)
+				AND nsid=? AND rkey{">" if reverse else "<"}?
+			ORDER BY rkey {"ASC" if reverse else "DESC"}
+			LIMIT ?
+		""",
 		(did_or_handle, did_or_handle, collection, cursor, limit)
 	):
 		records.append({
