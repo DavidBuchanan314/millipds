@@ -892,7 +892,10 @@ def construct_app(routes, db: database.Database) -> web.Application:
 		app,
 		defaults={
 			"*": aiohttp_cors.ResourceOptions(
-				allow_credentials=True, expose_headers="*", allow_headers="*"
+				allow_credentials=True,
+				expose_headers="*",
+				allow_headers="*",
+				max_age=2_000_000_000, # forever (not really, browsers cap this because they're cowards https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Max-Age#delta-seconds )
 			)
 		},
 	)
