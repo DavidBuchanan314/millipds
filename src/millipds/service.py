@@ -19,6 +19,7 @@ import cbrrr
 from . import static_config
 from . import database
 from . import repo_ops
+from . import oauth
 from . import util
 
 logger = logging.getLogger(__name__)
@@ -74,23 +75,6 @@ https://github.com/DavidBuchanan314/millipds
 	return web.Response(text=msg)
 
 
-# example: https://shiitake.us-east.host.bsky.network/.well-known/oauth-protected-resource
-@routes.get("/.well-known/oauth-protected-resource")
-async def oauth_protected_resource(request: web.Request):
-	cfg = get_db(request).config
-	return web.json_response({
-		"resource": cfg["pds_pfx"],
-		"authorization_servers": [ cfg["pds_pfx"] ], # we are our own auth server
-		"scopes_supported": [],
-		"bearer_methods_supported": [ "header" ],
-		"resource_documentation": "https://atproto.com"
-	})
-
-
-# example: https://bsky.social/.well-known/oauth-authorization-server
-@routes.get("/.well-known/oauth-authorization-server")
-async def oauth_authorization_server(request: web.Request):
-	return web.json_response({"TODO": "TODO"})
 
 
 # not a spec'd endpoint, but the reference impl has this too
@@ -856,6 +840,7 @@ def construct_app(routes, db: database.Database) -> web.Application:
 	app["MILLIPDS_FIREHOSE_QUEUES"] = set()
 	app["MILLIPDS_FIREHOSE_QUEUES_LOCK"] = asyncio.Lock()
 	app.add_routes(routes)
+	app.add_routes(oauth.routes)
 
 	# list of routes to proxy to the appview - hopefully not needed in the future (we'll derive the list from lexicons? and/or maybe service-proxying would be used?) https://github.com/bluesky-social/atproto/discussions/2350#discussioncomment-11193778
 	app.add_routes(

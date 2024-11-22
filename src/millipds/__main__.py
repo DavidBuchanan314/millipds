@@ -84,7 +84,7 @@ def main():
 			return
 		if args["--dev"]:
 			db.update_config(
-				pds_pfx=f'http://{args["<hostname>"]}:{args["--listen_port"]}',
+				pds_pfx=f'http://{args["<hostname>"]}',
 				pds_did=f'did:web:{args["<hostname>"]}',
 				bsky_appview_pfx="http://appview.test",
 				bsky_appview_did="did:web:appview.test",
