@@ -36,7 +36,15 @@ async def atproto_service_proxy_middleware(request: web.Request, handler):
 	# pass
 
 	# else, normal response
-	return await handler(request)
+	res: web.Response = await handler(request)
+
+	# inject security headers (this should really be a separate middleware, but here works too)
+	res.headers["X-Frame-Options"] = "DENY" # prevent clickajcking
+	res.headers["X-Content-Type-Options"] = "nosniff" # prevent XSS (almost vestigial at this point, I think)
+	res.headers["Content-Security-Policy"] = "default-src 'none'; sandbox" # prevent everything
+	# NB: HSTS and other TLS-related headers not set, set them in nginx or wherever you terminate TLS
+
+	return res
 
 
 # inject permissive CORS headers unconditionally
@@ -75,6 +83,18 @@ https://github.com/DavidBuchanan314/millipds
 	return web.Response(text=msg)
 
 
+# browsers love to request this unprompted, so here's an answer for them
+@routes.get("/favicon.ico")
+async def health(request: web.Request):
+	return web.Response(
+		text='''
+			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+				<text x="50%" y="0.95em" font-size="90" text-anchor="middle">🌐</text>
+			</svg>
+		''',
+		content_type="image/svg+xml",
+		headers={"Cache-Control": "max-age=864000"}
+	)
 
 
 # not a spec'd endpoint, but the reference impl has this too
@@ -86,6 +106,7 @@ async def health(request: web.Request):
 	})
 
 # we should not be implementing bsky-specific logic here!
+# (ideally, a PDS should not be aware of app-specific logic)
 @routes.get("/xrpc/app.bsky.actor.getPreferences")
 async def actor_get_preferences(request: web.Request):
 	return web.json_response({"preferences": []})  # dummy response

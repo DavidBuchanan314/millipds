@@ -1,5 +1,8 @@
 import logging
 
+import jwt
+import cbrrr
+
 from aiohttp import web
 
 from . import database
@@ -25,6 +28,8 @@ async def oauth_protected_resource(request: web.Request):
 @routes.get("/.well-known/oauth-authorization-server")
 async def oauth_authorization_server(request: web.Request):
 	# XXX: most of these values are currently bogus!!! I copy pasted bsky's one
+	# TODO: fill in alg_supported lists based on what pyjwt actually supports
+	# perhaps via jwt.api_jws.get_default_algorithms().keys(), but we'd want to exclude the symmetric ones
 	cfg = get_db(request).config
 	pfx = cfg["pds_pfx"]
 	return web.json_response({
@@ -65,11 +70,57 @@ async def oauth_authorize(request: web.Request):
 	)
 
 
+def dpop_protected(handler):
+	def dpop_handler(request: web.Request):
+		dpop = request.headers.get("dpop")
+		if dpop is None:
+			raise web.HTTPUnauthorized(
+				text="missing dpop"
+			)
+
+		# we're not verifying yet, we just want to pull out the jwk from the header
+		unverified = jwt.api_jwt.decode_complete(dpop, options={"verify_signature": False})
+		jwk_data = unverified["header"]["jwk"]
+		jwk = jwt.PyJWK.from_dict(jwk_data)
+		decoded = jwt.decode(dpop, key=jwk) # actual signature verification happens here
+
+		logger.info(decoded)
+		logger.info(request.url)
+
+		# TODO: verify iat?, iss?
+
+		if request.method != decoded["htm"]:
+			raise web.HTTPUnauthorized(
+				text="dpop: bad htm"
+			)
+
+		if str(request.url) != decoded["htu"]:
+			logger.info(f"{request.url!r} != {decoded['htu']!r}")
+			raise web.HTTPUnauthorized(
+				text="dpop: bad htu (if your application is reverse-proxied, make sure the Host header is getting set properly)"
+			)
+
+		request["dpop_jwk"] = cbrrr.encode_dag_cbor(jwk_data) # for easy comparison in db etc.
+		request["dpop_jti"] = decoded["jti"] # XXX: should replay prevention happen here?
+		request["dpop_iss"] = decoded["iss"]
+
+		return handler(request)
+
+	return dpop_handler
+
+
 @routes.post("/oauth/par")
+@dpop_protected
 async def oauth_par(request: web.Request):
 	data = await request.json() # TODO: doesn't rfc9126 say it's posted as form data?
 	logging.info(data)
+
+	assert(data["client_id"] == request["dpop_iss"]) # idk if this is required
+
 	# TODO: rest of owl
+	return web.json_response({
+		"TODO": "TODO"
+	})
 
 
 # these helpers are useful for conciseness and type hinting
