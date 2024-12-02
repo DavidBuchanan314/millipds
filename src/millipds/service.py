@@ -550,7 +550,7 @@ async def sync_get_blob(request: web.Request):
 		).fetchone()
 		if blob_id is None:
 			return web.HTTPNotFound(text="blob not found")
-		res = web.StreamResponse()
+		res = web.StreamResponse(headers={"Content-Disposition": f'attachment; filename="{request.query["cid"]}.bin"'})
 		res.content_type = "application/octet-stream"
 		await res.prepare(request)
 		for blob_part, *_ in con.execute( # TODO: would bad things happen to the db if a client started reading and then blocked?
