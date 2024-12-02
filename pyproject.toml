@@ -6,14 +6,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "millipds"
-#version = "0.0.1"
 dynamic = ["version"]
 authors = [
  	{ name="David Buchanan", email="d@vidbuchanan.co.uk" },
 ]
 description = "A lightweight atproto PDS"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11" # NOTE: can probably reduce to 3.10, with changes to atmst
 classifiers = [
 	"Programming Language :: Python :: 3",
 	"License :: OSI Approved :: MIT License",
@@ -21,10 +20,11 @@ classifiers = [
 ]
 dependencies = [
 	"cbrrr >= 1.0.0, < 2",
-	"atmst@git+https://github.com/DavidBuchanan314/atmst",
+	"atmst >= 0.0.3",
+	"pyjwt[crypto]",
+	"cryptography",
 	"aiohttp",
 	"aiohttp_cors",
-	"pyjwt[crypto]",
 	"docopt",
 	"apsw",
 	"argon2-cffi",
