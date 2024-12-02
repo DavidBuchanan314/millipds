@@ -31,10 +31,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-docs = [
+docs = [ # uhhhhh I'm not currently using these lol
 	"sphinx",
 	"sphinx-rtd-theme",
 	"sphinxcontrib-jquery",
+]
+test = [
+	"requests",
 ]
 
 [project.urls]

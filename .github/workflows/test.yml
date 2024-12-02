@@ -11,7 +11,7 @@ jobs:
           python-version: '3.11'
       - name: Install millipds python module
         run: |
-          python3 -m pip install .
+          python3 -m pip install .[test]
       - name: Run the tests
         run: |
           ./tests/run_integration_test.sh
