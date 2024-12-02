@@ -21,6 +21,7 @@ from . import database
 from . import repo_ops
 from . import oauth
 from . import util
+from . import crypto
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +40,9 @@ async def atproto_service_proxy_middleware(request: web.Request, handler):
 	res: web.Response = await handler(request)
 
 	# inject security headers (this should really be a separate middleware, but here works too)
-	res.headers["X-Frame-Options"] = "DENY" # prevent clickajcking
-	res.headers["X-Content-Type-Options"] = "nosniff" # prevent XSS (almost vestigial at this point, I think)
-	res.headers["Content-Security-Policy"] = "default-src 'none'; sandbox" # prevent everything
+	res.headers.setdefault("X-Frame-Options", "DENY") # prevent clickajcking
+	res.headers.setdefault("X-Content-Type-Options","nosniff") # prevent XSS (almost vestigial at this point, I think)
+	res.headers.setdefault("Content-Security-Policy", "default-src 'none'; sandbox") # prevent everything
 	# NB: HSTS and other TLS-related headers not set, set them in nginx or wherever you terminate TLS
 
 	return res
@@ -81,6 +82,15 @@ https://github.com/DavidBuchanan314/millipds
 """
 
 	return web.Response(text=msg)
+
+@routes.get("/robots.txt")
+async def robots_txt(request: web.Request):
+	return web.Response(text="""\
+# this is an atproto pds. please crawl it.
+
+User-Agent: *
+Allow: /
+""")
 
 
 # browsers love to request this unprompted, so here's an answer for them
@@ -827,8 +837,8 @@ async def static_appview_proxy(request: web.Request):
 				"exp": int(time.time()) + 60 * 60 * 24,  # 24h
 			},
 			signing_key,
-			algorithm="ES256",
-		)  # TODO: ES256K compat?
+			algorithm=crypto.jwt_signature_alg_for_pem(signing_key),
+		)
 	}  # TODO: cache this!
 	appview_pfx = db.config["bsky_appview_pfx"]
 	if request.method == "GET":
@@ -866,6 +876,7 @@ def construct_app(routes, db: database.Database) -> web.Application:
 	# list of routes to proxy to the appview - hopefully not needed in the future (we'll derive the list from lexicons? and/or maybe service-proxying would be used?) https://github.com/bluesky-social/atproto/discussions/2350#discussioncomment-11193778
 	app.add_routes(
 		[
+			# fmt off
 			# web.get ("/xrpc/app.bsky.actor.getPreferences", static_appview_proxy),
 			# web.post("/xrpc/app.bsky.actor.putPreferences", static_appview_proxy),
 			web.get("/xrpc/app.bsky.actor.getProfile", static_appview_proxy),
@@ -873,18 +884,15 @@ def construct_app(routes, db: database.Database) -> web.Application:
 			web.get("/xrpc/app.bsky.actor.getSuggestions", static_appview_proxy),
 			web.get("/xrpc/app.bsky.actor.searchActorsTypeahead", static_appview_proxy),
 			web.get("/xrpc/app.bsky.labeler.getServices", static_appview_proxy),
-			web.get(
-				"/xrpc/app.bsky.notification.listNotifications", static_appview_proxy
-			),
+			web.get("/xrpc/app.bsky.notification.listNotifications", static_appview_proxy),
+			web.get("/xrpc/app.bsky.notification.getUnreadCount", static_appview_proxy),
 			web.post("/xrpc/app.bsky.notification.updateSeen", static_appview_proxy),
 			web.get("/xrpc/app.bsky.graph.getList", static_appview_proxy),
 			web.get("/xrpc/app.bsky.graph.getLists", static_appview_proxy),
 			web.get("/xrpc/app.bsky.graph.getFollows", static_appview_proxy),
 			web.get("/xrpc/app.bsky.graph.getFollowers", static_appview_proxy),
 			web.get("/xrpc/app.bsky.graph.getStarterPack", static_appview_proxy),
-			web.get(
-				"/xrpc/app.bsky.graph.getSuggestedFollowsByActor", static_appview_proxy
-			),
+			web.get("/xrpc/app.bsky.graph.getSuggestedFollowsByActor", static_appview_proxy),
 			web.get("/xrpc/app.bsky.graph.getActorStarterPacks", static_appview_proxy),
 			web.post("/xrpc/app.bsky.graph.muteActor", static_appview_proxy),
 			web.post("/xrpc/app.bsky.graph.unmuteActor", static_appview_proxy),
@@ -899,12 +907,9 @@ def construct_app(routes, db: database.Database) -> web.Application:
 			web.get("/xrpc/app.bsky.feed.getPosts", static_appview_proxy),
 			web.get("/xrpc/app.bsky.feed.getLikes", static_appview_proxy),
 			web.get("/xrpc/app.bsky.feed.getActorLikes", static_appview_proxy),
-			web.get(
-				"/xrpc/app.bsky.unspecced.getPopularFeedGenerators",
-				static_appview_proxy,
-			),
-
+			web.get("/xrpc/app.bsky.unspecced.getPopularFeedGenerators", static_appview_proxy),
 			web.get("/xrpc/chat.bsky.convo.listConvos", static_appview_proxy)
+			# fmt on
 		]
 	)
 	# app.on_response_prepare.append(prepare_cors_headers)

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives import serialization
@@ -23,6 +25,11 @@ CURVE_ORDER = {
 	ec.SECP256R1: 0xFFFFFFFF_00000000_FFFFFFFF_FFFFFFFF_BCE6FAAD_A7179E84_F3B9CAC2_FC632551,
 	# constant defined by SECG SEC 2 - https://www.secg.org/sec2-v2.pdf
 	ec.SECP256K1: 0xFFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFE_BAAEDCE6_AF48A03B_BFD25E8C_D0364141,
+}
+
+JWT_SIGNATURE_ALGS = {
+	ec.SECP256R1: "ES256",
+	ec.SECP256K1: "ES256K",
 }
 
 
@@ -70,3 +77,6 @@ def privkey_from_pem(pem: str) -> ec.EllipticCurvePrivateKey:
 	if not isinstance(privkey.curve, (ec.SECP256R1, ec.SECP256K1)):
 		raise TypeError("unsupported key type")
 	return privkey
+
+def jwt_signature_alg_for_pem(pem: str) -> Literal["ES256", "ES256K"]:
+	return JWT_SIGNATURE_ALGS[type(privkey_from_pem(pem).curve)]
