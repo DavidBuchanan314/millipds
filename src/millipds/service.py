@@ -18,12 +18,10 @@ import cbrrr
 
 from . import static_config
 from . import database
-from . import repo_ops
 from . import auth_oauth
 from . import atproto_sync
 from . import atproto_repo
 from . import util
-from . import crypto
 from .appview_proxy import static_appview_proxy
 from .auth_bearer import authenticated
 from .app_util import *
@@ -321,9 +319,9 @@ def construct_app(routes, db: database.Database) -> web.Application:
 		app,
 		defaults={
 			"*": aiohttp_cors.ResourceOptions(
-				allow_credentials=True,
-				expose_headers="*",
-				allow_headers="*",
+				allow_credentials=True, # TODO: restrict?
+				expose_headers="*", # TODO: restrict?
+				allow_headers="*", # TODO: restrict?
 				max_age=2_000_000_000, # forever (not really, browsers cap this because they're cowards https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Max-Age#delta-seconds )
 			)
 		},
