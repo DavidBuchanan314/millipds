@@ -1,0 +1,17 @@
+name: Run tests
+run-name: ${{ github.actor }} is running tests
+on: push
+jobs:
+  Tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install millipds python module
+        run: |
+          python3 -m pip install .
+      - name: Run the tests
+        run: |
+          ./tests/run_integration_test.sh
