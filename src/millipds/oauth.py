@@ -7,6 +7,7 @@ import json
 from aiohttp import web
 
 from . import database
+from .app_util import *
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ async def oauth_authorization_server(request: web.Request):
 async def oauth_authorize(request: web.Request):
 	# TODO: extract request_uri
 	return web.Response(
+		# TODO: put all this html in a template .html file lol
 		text="""\
 <!DOCTYPE html>
 <html>
@@ -224,9 +226,3 @@ async def oauth_pushed_authorization_request(request: web.Request):
 		"request_uri": "urn:ietf:params:oauth:request_uri:req-064ed63e9fbf10815fd5f402f4f3e92a", #XXX hardcoded test
 		"expires_in": 299
 	})
-
-
-# these helpers are useful for conciseness and type hinting
-# XXX: copy-pasted from service.py to avoid circular imports (should maybe put these in their own file)
-def get_db(req: web.Request) -> database.Database:
-	return req.app["MILLIPDS_DB"]
