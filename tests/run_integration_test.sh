@@ -4,7 +4,7 @@ set -euxo pipefail
 
 rm -rf ./data
 
-millipds init localhost:8123
+millipds init localhost:8123 --dev
 millipds account create did:plc:bwxddkvw5c6pkkntbtp2j4lx local.dev.retr0.id --unsafe_password="lol"
 
 millipds run &

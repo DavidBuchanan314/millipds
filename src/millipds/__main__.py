@@ -82,14 +82,14 @@ def main():
 				" or manually delete the db and try again."
 			)
 			return
-		if args["--dev"]:
+		if args["--dev"]: # like prod but http://
 			db.update_config(
 				pds_pfx=f'http://{args["<hostname>"]}',
 				pds_did=f'did:web:{args["<hostname>"]}',
-				bsky_appview_pfx="http://appview.test",
-				bsky_appview_did="did:web:appview.test",
+				bsky_appview_pfx="https://api.bsky.app",
+				bsky_appview_did="did:web:api.bsky.app",
 			)
-		elif args["--sandbox"]:
+		elif args["--sandbox"]: # now-defunct, need to figure out how to point at local infra
 			db.update_config(
 				pds_pfx=f'https://{args["<hostname>"]}',
 				pds_did=f'did:web:{args["<hostname>"]}',

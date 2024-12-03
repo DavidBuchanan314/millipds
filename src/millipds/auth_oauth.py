@@ -7,11 +7,17 @@ import json
 from aiohttp import web
 
 from . import database
+from . import html_templates
 from .app_util import *
 
 logger = logging.getLogger(__name__)
 
 routes = web.RouteTableDef()
+
+# we need to use a weaker-than-usual CSP to let the CSS and form submission work
+WEBUI_HEADERS = {
+	"Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
+}
 
 # example: https://shiitake.us-east.host.bsky.network/.well-known/oauth-protected-resource
 @routes.get("/.well-known/oauth-protected-resource")
@@ -64,97 +70,26 @@ async def oauth_authorization_server(request: web.Request):
 		"client_id_metadata_document_supported": True
 	})
 
+# this is where a client will redirect to during the auth flow.
+# they'll see a webpage asking them to login
 @routes.get("/oauth/authorize")
 async def oauth_authorize(request: web.Request):
 	# TODO: extract request_uri
 	return web.Response(
-		# TODO: put all this html in a template .html file lol
-		text="""\
-<!DOCTYPE html>
-<html>
-	<head>
-		<meta charset="UTF-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<title>Authorize</title>
-		<style>
-			/*html, body {
-				height: 100%
-			}*/
-			body {
-				background-color: #333;
-				color: #fff;
-				font-family: system-ui, sans-serif;
-				font-size: 16pt;
-				margin: 2em 0;
-			}
-
-			.panel {
-				background-color: #222;
-				max-width: 420px;
-				margin: auto;
-				padding: 1.5em;
-			}
-
-			h1 {
-				margin: 0;
-				border-bottom: 0.1em solid #ff0048;
-				line-height: 0.9;
-			}
-
-			form {
-				margin-top: 1.5em;
-			}
-
-			input {
-				width: 100%;
-				box-sizing: border-box;
-				padding: 0.5em 0.6em;
-				font-size: 16pt;
-				margin-bottom: 1em;
-				margin-top: 0.5em;
-				background-color: #1a1a1a;
-				color: #fff;
-				/*border: 0.1px solid #888;*/
-				border-style: none;
-				/*border-radius: 4px;*/
-			}
-
-			input[type="submit"] {
-				/*margin-top: 1em;*/
-				background-color: #ff0048;
-				font-weight: bold;
-				box-shadow: 2px 2px #000;
-				margin-bottom: 0;
-				/*border: 0.1px solid #fff;*/
-			}
-
-			input[type="submit"]:hover {
-				background-color: #e10042;
-			}
-
-			input[type="submit"]:active {
-				background-color: #c00038;
-			}
-		</style>
-	</head>
-	<body>
-		<div class="panel">
-			<h1>millipds</h1>
-			<h3>put yer creds in the box.</h2>
-			<form action="/oauth/login" method="POST">
-				<div class="box">
-					<label>handle: <input type="text" name="handle" value="todo.invalid" placeholder="bob.example.org"></label>
-					<label>password: <input type="password" name="password" placeholder="password"></label>
-				</div>
-				<input type="submit" value="sign in">
-			</form>
-		</div>
-	</body>
-</html>""",
+		text=html_templates.authn_page(), # this includes a login form that POSTs to /oauth/authorize (i.e. same endpoint)
 		content_type="text/html",
-		headers={
-			"Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
-		}
+		headers=WEBUI_HEADERS
+	)
+
+# after login, assuming the creds were good, the user will be prompted to
+# authorize the client application to access certain scopes
+@routes.post("/oauth/authorize")
+async def oauth_authorize_handle_login(request: web.Request):
+	# TODO: actually handle login
+	return web.Response(
+		text=html_templates.authz_page(),
+		content_type="text/html",
+		headers=WEBUI_HEADERS
 	)
 
 DPOP_NONCE = "placeholder_nonce_value" # this needs to get rotated! (does it matter that it's global?)
