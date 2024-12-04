@@ -12,7 +12,7 @@ authors = [
 ]
 description = "A lightweight atproto PDS"
 readme = "README.md"
-requires-python = ">=3.11" # NOTE: can probably reduce to 3.10, with changes to atmst
+requires-python = ">=3.9" # currently untested, may update if CI fails
 classifiers = [
 	"Programming Language :: Python :: 3",
 	"License :: OSI Approved :: MIT License",
@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
 	"cbrrr >= 1.0.0, < 2",
-	"atmst >= 0.0.3",
+	"atmst >= 0.0.4",
 	"pyjwt[crypto]",
 	"cryptography",
 	"aiohttp",
