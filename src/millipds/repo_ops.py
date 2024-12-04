@@ -257,7 +257,7 @@ def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: 
 		car = io.BytesIO()
 		cw = util.CarWriter(car, commit_cid)
 		cw.write_block(commit_cid, commit_bytes)
-		for mst_cid in created:
+		for mst_cid in created | {next_commit_root}: # unconditionally include the new root, to enable context-free deletion proofs if the top of the tree has been "cut off" without modifying the rest of the tree. see https://github.com/bluesky-social/atproto/pull/3033#issuecomment-2516402420
 			cw.write_block(mst_cid, bs.get_block(bytes(mst_cid)))
 		for record_cid in new_record_cids:
 			cw.write_block(record_cid, record_cbors[record_cid])
