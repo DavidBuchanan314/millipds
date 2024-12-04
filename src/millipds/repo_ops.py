@@ -10,7 +10,9 @@ I'm never planning on replacing sqlite with anything else, so the tight coupling
 """
 
 import io
-from typing import List, TypedDict, Literal, NotRequired, Optional, Tuple, Set
+from typing import List, TypedDict, Literal, TYPE_CHECKING, Optional, Tuple, Set
+if TYPE_CHECKING:
+	from typing import NotRequired # not suppored <= py3.10
 import apsw
 import aiohttp.web
 import base64
@@ -78,20 +80,21 @@ def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 
 
 # https://github.com/bluesky-social/atproto/blob/main/lexicons/com/atproto/repo/applyWrites.json
-WriteOp = TypedDict("WriteOp", {
-	"$type": Literal["com.atproto.repo.applyWrites#create", "com.atproto.repo.applyWrites#update", "com.atproto.repo.applyWrites#delete"],
-	"collection": str,
-	"rkey": NotRequired[str], # required for update, delete
-	"validate": NotRequired[bool],
-	"swapRecord": NotRequired[str],
-	"value": NotRequired[dict|str] # not required for delete - str is for base64-encoded dag-cbor
-})
+if TYPE_CHECKING:
+	WriteOp = TypedDict("WriteOp", {
+		"$type": Literal["com.atproto.repo.applyWrites#create", "com.atproto.repo.applyWrites#update", "com.atproto.repo.applyWrites#delete"],
+		"collection": str,
+		"rkey": NotRequired[str], # required for update, delete
+		"validate": NotRequired[bool],
+		"swapRecord": NotRequired[str],
+		"value": NotRequired[dict|str] # not required for delete - str is for base64-encoded dag-cbor
+	})
 
 # This is perhaps the most complex function in the whole codebase.
 # There's probably some scope for refactoring, but I like the "directness" of it.
 # The work it does is inherently complex, i.e. the atproto MST record commit logic
 # The MST logic itself is hidden away inside the `atmst` module.
-def apply_writes(db: Database, repo: str, writes: List[WriteOp], swap_commit: Optional[str]) -> Tuple[bytes, int, bytes]:
+def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: Optional[str]) -> Tuple[bytes, int, bytes]:
 	with db.new_con() as con: # one big transaction (we could perhaps work in two phases, prepare (via read-only conn) then commit?)
 		db_bs = DBBlockStore(con, repo)
 		mem_bs = MemoryBlockStore()

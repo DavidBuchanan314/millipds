@@ -12,7 +12,7 @@ authors = [
 ]
 description = "A lightweight atproto PDS"
 readme = "README.md"
-requires-python = ">=3.9" # currently untested, may update if CI fails
+requires-python = ">=3.10"
 classifiers = [
 	"Programming Language :: Python :: 3",
 	"License :: OSI Approved :: MIT License",
