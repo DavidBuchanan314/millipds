@@ -8,6 +8,7 @@ Usage:
   millipds util keygen [--p256 | --k256]
   millipds util print_pubkey <signing_key_pem>
   millipds util plcgen --genesis_json=PATH --rotation_key=PEM --handle=HANDLE --pds_host=URL --repo_pubkey=DIDKEY
+  millipds util plcsign --unsigned_op=PATH --rotation_key=PEM [--prev_op=PATH]
   millipds (-h | --help)
   millipds --version
 
@@ -146,13 +147,24 @@ def main():
 				},
 				"prev": None,
 			}
-			rawsig = crypto.raw_sign(rotation_key, cbrrr.encode_dag_cbor(genesis))
-			genesis["sig"] = base64.urlsafe_b64encode(rawsig).decode().rstrip("=")
+			genesis["sig"] = crypto.plc_sign(rotation_key, genesis)
 			genesis_digest = hashlib.sha256(cbrrr.encode_dag_cbor(genesis)).digest()
 			plc = "did:plc:" + base64.b32encode(genesis_digest)[:24].lower().decode()
 			with open(args["--genesis_json"], "w") as out:
 				json.dump(genesis, out, indent=4)
 			print(plc)
+		elif args["plcsign"]:
+			with open(args["--unsigned_op"]) as op_json:
+				op = json.load(op_json)
+			with open(args["--rotation_key"]) as pem:
+				rotation_key = crypto.privkey_from_pem(pem.read())
+			if args["--prev_op"]:
+				with open(args["--prev_op"]) as op_json:
+					prev_op = json.load(op_json)
+				op["prev"] = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(cbrrr.encode_dag_cbor(prev_op)).encode()
+			del op["sig"] # remove any existing sig
+			op["sig"] = crypto.plc_sign(rotation_key, op)
+			print(json.dumps(op, indent=4))
 		else:
 			print("invalid util subcommand")
 		return

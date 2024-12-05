@@ -1,4 +1,5 @@
 from typing import Literal
+import base64
 
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes
@@ -10,6 +11,8 @@ from cryptography.hazmat.primitives.asymmetric.utils import (
 from cryptography.exceptions import InvalidSignature
 
 import base58
+
+import cbrrr
 
 """
 This is scary hand-rolled cryptography, because there aren't really any alternative
@@ -100,3 +103,9 @@ def encode_pubkey_as_did_key(pubkey: ec.EllipticCurvePublicKey) -> str:
 	)
 	multicodec = MULTICODEC_PUBKEY_PREFIX[type(pubkey.curve)] + compressed_public_bytes
 	return "did:key:z" + base58.b58encode(multicodec).decode()
+
+def plc_sign(privkey: ec.EllipticCurvePrivateKey, op: dict) -> str:
+	if "sig" in op:
+		raise ValueError("op is already signed!")
+	rawsig = raw_sign(privkey, cbrrr.encode_dag_cbor(op))
+	return base64.urlsafe_b64encode(rawsig).decode().rstrip("=")
