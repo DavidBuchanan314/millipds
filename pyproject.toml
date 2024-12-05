@@ -28,6 +28,7 @@ dependencies = [
 	"docopt",
 	"apsw",
 	"argon2-cffi",
+	"base58"
 ]
 
 [project.optional-dependencies]

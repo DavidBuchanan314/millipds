@@ -1,10 +1,13 @@
 """millipds CLI
 
 Usage:
-  millipds init <hostname> [--dev|--sandbox]
+  millipds init <hostname> [--dev | --sandbox]
   millipds config [--pds_pfx=URL] [--pds_did=DID] [--bsky_appview_pfx=URL] [--bsky_appview_did=DID]
   millipds account create <did> <handle> [--unsafe_password=PW] [--signing_key=PEM]
   millipds run [--sock_path=PATH] [--listen_host=HOST] [--listen_port=PORT]
+  millipds util keygen [--p256 | --k256]
+  millipds util print_pubkey <signing_key_pem>
+  millipds util plcgen --genesis_json=PATH --rotation_key=PEM --handle=HANDLE --pds_host=URL --repo_pubkey=DIDKEY
   millipds (-h | --help)
   millipds --version
 
@@ -27,12 +30,10 @@ Config:
   --bsky_appview_pfx=URL  AppView URL prefix e.g. "https://api.bsky-sandbox.dev"
   --bsky_appview_did=DID  AppView DID e.g. did:web:api.bsky-sandbox.dev
 
-Account create:
+Account Create:
   Create a new user account on the PDS. Bring your own DID and corresponding
   handle - millipds will not (yet?) attempt to validate either.
   You'll be prompted for a password interactively.
-
-  TODO: consider bring-your-own signing key?
 
   --unsafe_password=PW  Specify password non-iteractively, for use in test scripts etc.
   --signing_key=PEM     Path to a PEM file
@@ -44,6 +45,12 @@ Run:
   --listen_host=HOST  Hostname to listen on [default: 127.0.0.1]
   --listen_port=PORT  TCP port to listen on [default: 8123]
 
+Util Keygen:
+  Generate a signing key, save it to a PEM, and print its path to stdout.
+
+  --p256    NISTP256 key format (default)
+  --k256    secp256k1 key format
+
 General options:
   -h --help           Show this screen.
   --version           Show version.
@@ -52,13 +59,19 @@ General options:
 import importlib.metadata
 import asyncio
 import logging
+import json
+import base64
+import hashlib
 from getpass import getpass
 
 from docopt import docopt
 
+import cbrrr
+
 from . import service
 from . import database
 from . import crypto
+from . import util
 
 
 logging.basicConfig(level=logging.DEBUG)  # TODO: make this configurable?
@@ -73,9 +86,8 @@ def main():
 		__doc__, version=f"millipds version {importlib.metadata.version('millipds')}"
 	)
 
-	db = database.Database()
-
 	if args["init"]:
+		db = database.Database()
 		if db.config_is_initialised():
 			print(
 				"Already initialised! Use the `config` command to make changes,"
@@ -106,7 +118,47 @@ def main():
 		assert db.config_is_initialised()
 		db.print_config()
 		return
+	elif args["util"]:
+		if args["keygen"]: # TODO: deprecate in favour of openssl?
+			if args["--k256"]:
+				privkey = crypto.keygen_k256() # openssl ecparam -name secp256k1 -genkey -noout
+			else: # default
+				privkey = crypto.keygen_p256() # openssl ecparam -name prime256v1 -genkey -noout
+			print(crypto.privkey_to_pem(privkey), end="")
+		elif args["print_pubkey"]:
+			with open(args["<signing_key_pem>"]) as pem:
+				print(crypto.encode_pubkey_as_did_key(crypto.privkey_from_pem(pem.read()).public_key()))
+		elif args["plcgen"]:
+			with open(args["--rotation_key"]) as pem:
+				rotation_key = crypto.privkey_from_pem(pem.read())
+			if not args["--repo_pubkey"].startswith("did:key:z"):
+				raise ValueError("invalid did:key")
+			genesis = {
+				"type": "plc_operation",
+				"rotationKeys": [ crypto.encode_pubkey_as_did_key(rotation_key.public_key()) ],
+				"verificationMethods": { "atproto": args["--repo_pubkey"] },
+				"alsoKnownAs": [ "at://" + args["--handle"] ],
+				"services": {
+					"atproto_pds": {
+						"type": "AtprotoPersonalDataServer",
+						"endpoint": args["--pds_host"]
+					}
+				},
+				"prev": None,
+			}
+			rawsig = crypto.raw_sign(rotation_key, cbrrr.encode_dag_cbor(genesis))
+			genesis["sig"] = base64.urlsafe_b64encode(rawsig).decode().rstrip("=")
+			genesis_digest = hashlib.sha256(cbrrr.encode_dag_cbor(genesis)).digest()
+			plc = "did:plc:" + base64.b32encode(genesis_digest)[:24].lower().decode()
+			with open(args["--genesis_json"], "w") as out:
+				json.dump(genesis, out, indent=4)
+			print(plc)
+		else:
+			print("invalid util subcommand")
+		return
 
+	# everything after this point requires an already-inited db
+	db = database.Database()
 	if not db.config_is_initialised():
 		print("Config uninitialised! Try the `init` command")
 		return
@@ -143,7 +195,7 @@ def main():
 				privkey=privkey,
 			)
 		else:
-			print("CLI arg parse error?!")
+			print("invalid account subcommand")
 	elif args["run"]:
 		asyncio.run(
 			service.run(

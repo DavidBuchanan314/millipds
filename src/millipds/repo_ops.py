@@ -223,7 +223,7 @@ def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: 
 			else:
 				raise Exception("unreachable")
 		
-		# step 3: persist MST changes (we have to do this now because record_diff might need to read some blocks)
+		# step 3: persist MST changes (we have to do this *after* record_diff because it might need to read some old blocks from the db)
 		con.executemany(
 			"DELETE FROM mst WHERE repo=? AND cid=?",
 			[(user_id, cid) for cid in map(bytes, deleted)]
