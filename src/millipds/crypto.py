@@ -93,6 +93,16 @@ def privkey_from_pem(pem: str) -> ec.EllipticCurvePrivateKey:
 		raise TypeError("unsupported key type")
 	return privkey
 
+
+def pubkey_from_pem(pem: str) -> ec.EllipticCurvePublicKey:
+	pubkey = serialization.load_pem_public_key(pem.encode())
+	if not isinstance(pubkey, ec.EllipticCurvePublicKey):
+		raise TypeError("unsupported key type")
+	if not isinstance(pubkey.curve, (ec.SECP256R1, ec.SECP256K1)):
+		raise TypeError("unsupported key type")
+	return pubkey
+
+
 def jwt_signature_alg_for_pem(pem: str) -> Literal["ES256", "ES256K"]:
 	return JWT_SIGNATURE_ALGS[type(privkey_from_pem(pem).curve)]
 

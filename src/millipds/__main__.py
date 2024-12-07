@@ -6,7 +6,7 @@ Usage:
   millipds account create <did> <handle> [--unsafe_password=PW] [--signing_key=PEM]
   millipds run [--sock_path=PATH] [--listen_host=HOST] [--listen_port=PORT]
   millipds util keygen [--p256 | --k256]
-  millipds util print_pubkey <signing_key_pem>
+  millipds util print_pubkey <pem>
   millipds util plcgen --genesis_json=PATH --rotation_key=PEM --handle=HANDLE --pds_host=URL --repo_pubkey=DIDKEY
   millipds util plcsign --unsigned_op=PATH --rotation_key=PEM [--prev_op=PATH]
   millipds (-h | --help)
@@ -127,8 +127,13 @@ def main():
 				privkey = crypto.keygen_p256() # openssl ecparam -name prime256v1 -genkey -noout
 			print(crypto.privkey_to_pem(privkey), end="")
 		elif args["print_pubkey"]:
-			with open(args["<signing_key_pem>"]) as pem:
-				print(crypto.encode_pubkey_as_did_key(crypto.privkey_from_pem(pem.read()).public_key()))
+			with open(args["<pem>"]) as pem:
+				pem_data = pem.read()
+			try:
+				pubkey = crypto.privkey_from_pem(pem_data).public_key()
+			except ValueError:
+				pubkey = crypto.pubkey_from_pem(pem_data)
+			print(crypto.encode_pubkey_as_did_key(pubkey))
 		elif args["plcgen"]:
 			with open(args["--rotation_key"]) as pem:
 				rotation_key = crypto.privkey_from_pem(pem.read())
