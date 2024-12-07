@@ -8,9 +8,9 @@ These instructions assume you are already familiar with atproto's DID mechanisms
 
 Millipds does not hold did:plc rotation keys, and therefore it cannot make DID document updates on your behalf. This is good for security, and means that you can store your rotation keys offline.
 
-It *does* however need to hold a repo signing key.
+Millipds *does* however need to hold a repo signing key.
 
-Below, I assume you have two separate machines, the "server" (where the millipds server runs) and the "local machine". If you don't care about security (keeping rotation keys off the server) you can ignore that distinction and run everything on the server.
+Below, I assume you have two separate machines, the "server" (where the millipds server runs) and the "local machine". If you don't care about security (keeping rotation keys off the server) you can ignore that distinction and run all the commands on the server.
 
 ## New Account (with did:plc)
 
