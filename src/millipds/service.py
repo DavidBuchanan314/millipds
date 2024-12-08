@@ -244,6 +244,26 @@ async def identity_update_handle(request: web.Request):
 			(firehose_seq, 0, firehose_bytes) # TODO: put sensible timestamp here...
 		)
 	await atproto_repo.firehose_broadcast(request, (firehose_seq, firehose_bytes))
+
+	# temp hack: #account events shouldn't really be generated here
+	with get_db(request).new_con() as con:
+		# TODO: refactor to avoid duplicated logic between here and apply_writes
+		firehose_seq = con.execute("SELECT IFNULL(MAX(seq), 0) + 1 FROM firehose").fetchone()[0]
+		firehose_bytes = cbrrr.encode_dag_cbor({
+			"t": "#account",
+			"op": 1
+		}) + cbrrr.encode_dag_cbor({
+			"seq": firehose_seq,
+			"did": request["authed_did"],
+			"time": util.iso_string_now(),
+			"active": True
+		})
+		con.execute(
+			"INSERT INTO firehose (seq, timestamp, msg) VALUES (?, ?, ?)",
+			(firehose_seq, 0, firehose_bytes) # TODO: put sensible timestamp here...
+		)
+	await atproto_repo.firehose_broadcast(request, (firehose_seq, firehose_bytes))
+
 	return web.Response()
 
 
