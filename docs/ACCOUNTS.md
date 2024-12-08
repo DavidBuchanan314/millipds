@@ -70,7 +70,9 @@ You'll probably run into some error messages because the relay doesn't know abou
 curl --json '{"hostname": "https://pds.example.com"}' "https://bsky.network/xrpc/com.atproto.sync.requestCrawl"
 ```
 
-Finally, we need to emit an `#identity` event (probably an `#account` event too but millipds doesn't do that yet!!!). This can be done by heading to your settings in `bsky.app` and "changing" your handle to the value it already is (e.g. `bob.example.com`) - this tells millipds to emit an `#identity` event. (I'll make this part more automatic in the future)
+Now we need to emit an `#identity` event (probably an `#account` event too but millipds doesn't do that yet!!!). This can be done by heading to your settings in `bsky.app` and "changing" your handle to the value it already is (e.g. `bob.example.com`) - this tells millipds to emit an `#identity` event. (I'll make this part more automatic in the future)
+
+The relay should be paying attention now, but maybe not the appview. To make the appview start indexing your posts, I *think* you need to create a bluesky profile record first, which can be done by setting your display name and/or bio (e.g. from `bsky.app`).
 
 Now, post something. If you're lucky, the relay and appview will pick it up, and now other people can see it. If not... have fun debugging...
 
