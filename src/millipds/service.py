@@ -86,6 +86,24 @@ https://github.com/DavidBuchanan314/millipds
 
 	return web.Response(text=msg)
 
+
+@routes.get("/.well-known/did.json") # serve this server's did:web document (nb: reference PDS impl doesn't do this, hard to know the right thing to do)
+async def well_known_did_web(request: web.Request):
+	cfg = get_db(request).config
+	return web.json_response({
+		"@context": [
+			"https://www.w3.org/ns/did/v1",
+		],
+		"id": cfg["pds_did"],
+		"service": [{ # is this the right thing to do?
+			"id": "#atproto_pds",
+			"type": "AtprotoPersonalDataServer",
+			"serviceEndpoint": cfg["pds_pfx"]
+		}]
+	})
+
+
+
 @routes.get("/robots.txt")
 async def robots_txt(request: web.Request):
 	return web.Response(text="""\

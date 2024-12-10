@@ -63,6 +63,7 @@ import logging
 import json
 import base64
 import hashlib
+import urllib.parse
 from getpass import getpass
 
 from docopt import docopt
@@ -98,21 +99,21 @@ def main():
 		if args["--dev"]: # like prod but http://
 			db.update_config(
 				pds_pfx=f'http://{args["<hostname>"]}',
-				pds_did=f'did:web:{args["<hostname>"]}',
+				pds_did=f'did:web:{urllib.parse.quote(args["<hostname>"])}',
 				bsky_appview_pfx="https://api.bsky.app",
 				bsky_appview_did="did:web:api.bsky.app",
 			)
 		elif args["--sandbox"]: # now-defunct, need to figure out how to point at local infra
 			db.update_config(
 				pds_pfx=f'https://{args["<hostname>"]}',
-				pds_did=f'did:web:{args["<hostname>"]}',
+				pds_did=f'did:web:{urllib.parse.quote(args["<hostname>"])}',
 				bsky_appview_pfx="https://api.bsky-sandbox.dev",
 				bsky_appview_did="did:web:api.bsky-sandbox.dev",
 			)
 		else:  # "prod" presets
 			db.update_config(
 				pds_pfx=f'https://{args["<hostname>"]}',
-				pds_did=f'did:web:{args["<hostname>"]}',
+				pds_did=f'did:web:{urllib.parse.quote(args["<hostname>"])}',
 				bsky_appview_pfx="https://api.bsky.app",
 				bsky_appview_did="did:web:api.bsky.app",
 			)
