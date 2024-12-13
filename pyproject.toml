@@ -24,7 +24,7 @@ dependencies = [
 	"pyjwt[crypto]",
 	"cryptography",
 	"aiohttp",
-	"aiohttp_cors",
+	"aiohttp-middlewares", # cors
 	"docopt",
 	"apsw",
 	"argon2-cffi",

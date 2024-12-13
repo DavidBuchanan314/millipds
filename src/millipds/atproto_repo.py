@@ -6,7 +6,7 @@ import cbrrr
 import apsw
 
 from . import repo_ops
-from .appview_proxy import static_appview_proxy
+from .appview_proxy import service_proxy
 from .auth_bearer import authenticated
 from .app_util import *
 
@@ -156,7 +156,7 @@ async def repo_get_record(request: web.Request):
 		(did_or_handle, did_or_handle, collection, rkey)
 	).fetchone()
 	if row is None:
-		return await static_appview_proxy(request) # forward to appview
+		return await service_proxy(request) # forward to appview
 		#return web.HTTPNotFound(text="record not found")
 	cid_out, value = row
 	cid_out = cbrrr.CID(cid_out)

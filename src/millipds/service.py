@@ -2,7 +2,6 @@ from typing import Optional, Set, Tuple
 import importlib.metadata
 import logging
 import asyncio
-import aiohttp_cors
 import time
 import os
 import io
@@ -11,6 +10,7 @@ import hashlib
 
 import apsw
 import aiohttp
+from aiohttp_middlewares import cors_middleware
 from aiohttp import web
 import jwt
 
@@ -22,7 +22,7 @@ from . import auth_oauth
 from . import atproto_sync
 from . import atproto_repo
 from . import util
-from .appview_proxy import static_appview_proxy
+from .appview_proxy import service_proxy
 from .auth_bearer import authenticated
 from .app_util import *
 
@@ -33,11 +33,10 @@ routes = web.RouteTableDef()
 
 @web.middleware
 async def atproto_service_proxy_middleware(request: web.Request, handler):
-	# TODO: if service proxying header is present, do service proxying!
 	# https://atproto.com/specs/xrpc#service-proxying
-	# (this implies having a DID resolver!!!) (probably with a cache!)
-	# if request.headers.get("atproto-proxy"):
-	# pass
+	atproto_proxy = request.headers.get("atproto-proxy")
+	if atproto_proxy:
+		return await service_proxy(request, atproto_proxy)
 
 	# else, normal response
 	res: web.Response = await handler(request)
@@ -49,13 +48,6 @@ async def atproto_service_proxy_middleware(request: web.Request, handler):
 	# NB: HSTS and other TLS-related headers not set, set them in nginx or wherever you terminate TLS
 
 	return res
-
-
-# inject permissive CORS headers unconditionally
-# async def prepare_cors_headers(request, response: web.Response):
-# response.headers["Access-Control-Allow-Origin"] = "*"
-# response.headers["Access-Control-Allow-Headers"] = "atproto-accept-labelers,authorization"  # TODO: tighten?
-# response.headers["Access-Control-Allow-Methods"] = "GET,HEAD,PUT,PATCH,POST,DELETE"
 
 
 @routes.get("/")
@@ -300,7 +292,16 @@ async def server_get_session(request: web.Request):
 
 
 def construct_app(routes, db: database.Database) -> web.Application:
-	app = web.Application(middlewares=[atproto_service_proxy_middleware])
+	cors = cors_middleware( # TODO: review and reduce scope - and maybe just /xrpc/*?
+		allow_all=True,
+		expose_headers=["*"],
+		allow_headers=["*"],
+		allow_methods=["*"],
+		allow_credentials=True,
+		max_age=2_000_000_000
+	)
+
+	app = web.Application(middlewares=[cors, atproto_service_proxy_middleware])
 	app["MILLIPDS_DB"] = db
 	app["MILLIPDS_AIOHTTP_CLIENT"] = (
 		aiohttp.ClientSession()
@@ -318,55 +319,39 @@ def construct_app(routes, db: database.Database) -> web.Application:
 			# fmt off
 			# web.get ("/xrpc/app.bsky.actor.getPreferences", static_appview_proxy),
 			# web.post("/xrpc/app.bsky.actor.putPreferences", static_appview_proxy),
-			web.get("/xrpc/app.bsky.actor.getProfile", static_appview_proxy),
-			web.get("/xrpc/app.bsky.actor.getProfiles", static_appview_proxy),
-			web.get("/xrpc/app.bsky.actor.getSuggestions", static_appview_proxy),
-			web.get("/xrpc/app.bsky.actor.searchActorsTypeahead", static_appview_proxy),
-			web.get("/xrpc/app.bsky.labeler.getServices", static_appview_proxy),
-			web.get("/xrpc/app.bsky.notification.listNotifications", static_appview_proxy),
-			web.get("/xrpc/app.bsky.notification.getUnreadCount", static_appview_proxy),
-			web.post("/xrpc/app.bsky.notification.updateSeen", static_appview_proxy),
-			web.get("/xrpc/app.bsky.graph.getList", static_appview_proxy),
-			web.get("/xrpc/app.bsky.graph.getLists", static_appview_proxy),
-			web.get("/xrpc/app.bsky.graph.getFollows", static_appview_proxy),
-			web.get("/xrpc/app.bsky.graph.getFollowers", static_appview_proxy),
-			web.get("/xrpc/app.bsky.graph.getStarterPack", static_appview_proxy),
-			web.get("/xrpc/app.bsky.graph.getSuggestedFollowsByActor", static_appview_proxy),
-			web.get("/xrpc/app.bsky.graph.getActorStarterPacks", static_appview_proxy),
-			web.post("/xrpc/app.bsky.graph.muteActor", static_appview_proxy),
-			web.post("/xrpc/app.bsky.graph.unmuteActor", static_appview_proxy),
-			web.get("/xrpc/app.bsky.feed.getTimeline", static_appview_proxy),
-			web.get("/xrpc/app.bsky.feed.getAuthorFeed", static_appview_proxy),
-			web.get("/xrpc/app.bsky.feed.getActorFeeds", static_appview_proxy),
-			web.get("/xrpc/app.bsky.feed.getFeed", static_appview_proxy),
-			web.get("/xrpc/app.bsky.feed.getListFeed", static_appview_proxy),
-			web.get("/xrpc/app.bsky.feed.getFeedGenerator", static_appview_proxy),
-			web.get("/xrpc/app.bsky.feed.getFeedGenerators", static_appview_proxy),
-			web.get("/xrpc/app.bsky.feed.getPostThread", static_appview_proxy),
-			web.get("/xrpc/app.bsky.feed.getPosts", static_appview_proxy),
-			web.get("/xrpc/app.bsky.feed.getLikes", static_appview_proxy),
-			web.get("/xrpc/app.bsky.feed.getActorLikes", static_appview_proxy),
-			web.get("/xrpc/app.bsky.unspecced.getPopularFeedGenerators", static_appview_proxy),
-			web.get("/xrpc/chat.bsky.convo.listConvos", static_appview_proxy)
+			web.get("/xrpc/app.bsky.actor.getProfile", service_proxy),
+			web.get("/xrpc/app.bsky.actor.getProfiles", service_proxy),
+			web.get("/xrpc/app.bsky.actor.getSuggestions", service_proxy),
+			web.get("/xrpc/app.bsky.actor.searchActorsTypeahead", service_proxy),
+			web.get("/xrpc/app.bsky.labeler.getServices", service_proxy),
+			web.get("/xrpc/app.bsky.notification.listNotifications", service_proxy),
+			web.get("/xrpc/app.bsky.notification.getUnreadCount", service_proxy),
+			web.post("/xrpc/app.bsky.notification.updateSeen", service_proxy),
+			web.get("/xrpc/app.bsky.graph.getList", service_proxy),
+			web.get("/xrpc/app.bsky.graph.getLists", service_proxy),
+			web.get("/xrpc/app.bsky.graph.getFollows", service_proxy),
+			web.get("/xrpc/app.bsky.graph.getFollowers", service_proxy),
+			web.get("/xrpc/app.bsky.graph.getStarterPack", service_proxy),
+			web.get("/xrpc/app.bsky.graph.getSuggestedFollowsByActor", service_proxy),
+			web.get("/xrpc/app.bsky.graph.getActorStarterPacks", service_proxy),
+			web.post("/xrpc/app.bsky.graph.muteActor", service_proxy),
+			web.post("/xrpc/app.bsky.graph.unmuteActor", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getTimeline", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getAuthorFeed", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getActorFeeds", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getFeed", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getListFeed", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getFeedGenerator", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getFeedGenerators", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getPostThread", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getPosts", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getLikes", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getActorLikes", service_proxy),
+			web.get("/xrpc/app.bsky.unspecced.getPopularFeedGenerators", service_proxy),
+			#web.get("/xrpc/chat.bsky.convo.listConvos", static_appview_proxy)
 			# fmt on
 		]
 	)
-	# app.on_response_prepare.append(prepare_cors_headers)
-
-	cors = aiohttp_cors.setup(
-		app,
-		defaults={
-			"*": aiohttp_cors.ResourceOptions(
-				allow_credentials=True, # TODO: restrict?
-				expose_headers="*", # TODO: restrict?
-				allow_headers="*", # TODO: restrict?
-				max_age=2_000_000_000, # forever (not really, browsers cap this because they're cowards https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Max-Age#delta-seconds )
-			)
-		},
-	)
-
-	for route in app.router.routes():
-		cors.add(route)
 
 	return app
 

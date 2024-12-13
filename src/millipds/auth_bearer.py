@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 routes = web.RouteTableDef()
 def authenticated(handler):
-	def authentication_handler(request: web.Request):
+	def authentication_handler(request: web.Request, *args, **kwargs):
 		# extract the auth token
 		auth = request.headers.get("Authorization")
 		if auth is None:
@@ -43,6 +43,6 @@ def authenticated(handler):
 		if not subject.startswith("did:"):
 			raise web.HTTPUnauthorized(text="invalid jwt: invalid subject")
 		request["authed_did"] = subject
-		return handler(request)
+		return handler(request, *args, **kwargs)
 
 	return authentication_handler
