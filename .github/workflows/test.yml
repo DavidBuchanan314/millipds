@@ -1,6 +1,12 @@
 name: Run tests
 run-name: ${{ github.actor }} is running tests
-on: push
+on:
+  push:
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - main
 jobs:
   Tests:
     runs-on: ubuntu-latest
@@ -17,4 +23,4 @@ jobs:
           python3 -m pip install .[test]
       - name: Run the tests
         run: |
-          ./tests/run_integration_test.sh
+          python3 -m pytest tests/integration_test.py
