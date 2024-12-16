@@ -139,3 +139,15 @@ Useful command for watching the logs:
 ```sh
 sudo journalctl -u millipds.service -f
 ```
+
+### Create account
+
+```sh
+export HANDLE=alice.example.com
+export PDS_HOST=$(echo $HANDLE | sed -e 's/^\w*\.//')
+millipds util keygen > atproto-private.pem
+export REPO_PUBKEY=$(millipds util print_pubkey atproto-private.pem)
+millipds util plcgen --handle "${HANDLE}" --pds_host "${PDS_HOST}" --repo_pubkey "${REPO_PUBKEY}" --rotation_key atproto-private.pem --genesis_json atproto-genesis.json | tee atproto-did-plc.txt
+export DID_PLC=$(cat atproto-did-plc.txt)
+millipds account create "${DID_PLC}" "${HANDLE}" --signing_key atproto-private.pem
+```
