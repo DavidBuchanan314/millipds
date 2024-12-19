@@ -298,7 +298,7 @@ def construct_app(routes, db: database.Database) -> web.Application:
 		allow_headers=["*"],
 		allow_methods=["*"],
 		allow_credentials=True,
-		max_age=2_000_000_000
+		max_age=100_000_000
 	)
 
 	app = web.Application(middlewares=[cors, atproto_service_proxy_middleware])
@@ -347,6 +347,8 @@ def construct_app(routes, db: database.Database) -> web.Application:
 			web.get("/xrpc/app.bsky.feed.getPosts", service_proxy),
 			web.get("/xrpc/app.bsky.feed.getLikes", service_proxy),
 			web.get("/xrpc/app.bsky.feed.getActorLikes", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getQuotes", service_proxy),
+			web.get("/xrpc/app.bsky.feed.getRepostedBy", service_proxy),
 			web.get("/xrpc/app.bsky.unspecced.getPopularFeedGenerators", service_proxy),
 			#web.get("/xrpc/chat.bsky.convo.listConvos", static_appview_proxy)
 			# fmt on
