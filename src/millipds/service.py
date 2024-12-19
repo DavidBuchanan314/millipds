@@ -42,9 +42,13 @@ async def atproto_service_proxy_middleware(request: web.Request, handler):
 	res: web.Response = await handler(request)
 
 	# inject security headers (this should really be a separate middleware, but here works too)
-	res.headers.setdefault("X-Frame-Options", "DENY") # prevent clickajcking
-	res.headers.setdefault("X-Content-Type-Options","nosniff") # prevent XSS (almost vestigial at this point, I think)
-	res.headers.setdefault("Content-Security-Policy", "default-src 'none'; sandbox") # prevent everything
+	res.headers.setdefault("X-Frame-Options", "DENY")  # prevent clickajcking
+	res.headers.setdefault(
+		"X-Content-Type-Options", "nosniff"
+	)  # prevent XSS (almost vestigial at this point, I think)
+	res.headers.setdefault(
+		"Content-Security-Policy", "default-src 'none'; sandbox"
+	)  # prevent everything
 	# NB: HSTS and other TLS-related headers not set, set them in nginx or wherever you terminate TLS
 
 	return res
@@ -79,44 +83,51 @@ https://github.com/DavidBuchanan314/millipds
 	return web.Response(text=msg)
 
 
-@routes.get("/.well-known/did.json") # serve this server's did:web document (nb: reference PDS impl doesn't do this, hard to know the right thing to do)
+@routes.get(
+	"/.well-known/did.json"
+)  # serve this server's did:web document (nb: reference PDS impl doesn't do this, hard to know the right thing to do)
 async def well_known_did_web(request: web.Request):
 	cfg = get_db(request).config
-	return web.json_response({
-		"@context": [
-			"https://www.w3.org/ns/did/v1",
-		],
-		"id": cfg["pds_did"],
-		"service": [{ # is this the right thing to do?
-			"id": "#atproto_pds",
-			"type": "AtprotoPersonalDataServer",
-			"serviceEndpoint": cfg["pds_pfx"]
-		}]
-	})
-
+	return web.json_response(
+		{
+			"@context": [
+				"https://www.w3.org/ns/did/v1",
+			],
+			"id": cfg["pds_did"],
+			"service": [
+				{  # is this the right thing to do?
+					"id": "#atproto_pds",
+					"type": "AtprotoPersonalDataServer",
+					"serviceEndpoint": cfg["pds_pfx"],
+				}
+			],
+		}
+	)
 
 
 @routes.get("/robots.txt")
 async def robots_txt(request: web.Request):
-	return web.Response(text="""\
+	return web.Response(
+		text="""\
 # this is an atproto pds. please crawl it.
 
 User-Agent: *
 Allow: /
-""")
+"""
+	)
 
 
 # browsers love to request this unprompted, so here's an answer for them
 @routes.get("/favicon.ico")
 async def health(request: web.Request):
 	return web.Response(
-		text='''
+		text="""
 			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
 				<text x="50%" y="0.95em" font-size="90" text-anchor="middle">🌐</text>
 			</svg>
-		''',
+		""",
 		content_type="image/svg+xml",
-		headers={"Cache-Control": "max-age=864000"}
+		headers={"Cache-Control": "max-age=864000"},
 	)
 
 
@@ -124,9 +135,8 @@ async def health(request: web.Request):
 @routes.get("/xrpc/_health")
 async def health(request: web.Request):
 	version = importlib.metadata.version("millipds")
-	return web.json_response({
-		"version": f"millipds v{version}"
-	})
+	return web.json_response({"version": f"millipds v{version}"})
+
 
 # we should not be implementing bsky-specific logic here!
 # (ideally, a PDS should not be aware of app-specific logic)
@@ -134,10 +144,12 @@ async def health(request: web.Request):
 async def actor_get_preferences(request: web.Request):
 	return web.json_response({"preferences": []})  # dummy response
 
+
 @routes.post("/xrpc/app.bsky.actor.putPreferences")
 async def actor_put_preferences(request: web.Request):
 	# TODO: actually implement this
 	return web.Response()
+
 
 @routes.get("/xrpc/com.atproto.identity.resolveHandle")
 async def identity_resolve_handle(request: web.Request):
@@ -149,9 +161,6 @@ async def identity_resolve_handle(request: web.Request):
 	if not did:
 		raise web.HTTPNotFound(text="no user by that handle exists on this PDS")
 	return web.json_response({"did": did})
-
-
-
 
 
 @routes.get("/xrpc/com.atproto.server.describeServer")
@@ -225,9 +234,6 @@ async def server_create_session(request: web.Request):
 	)
 
 
-
-
-
 @routes.post("/xrpc/com.atproto.identity.updateHandle")
 @authenticated
 async def identity_update_handle(request: web.Request):
@@ -239,40 +245,58 @@ async def identity_update_handle(request: web.Request):
 	# (I'm writing this half-baked version just so I can send firehose #identity events)
 	with get_db(request).new_con() as con:
 		# TODO: refactor to avoid duplicated logic between here and apply_writes
-		firehose_seq = con.execute("SELECT IFNULL(MAX(seq), 0) + 1 FROM firehose").fetchone()[0]
-		firehose_bytes = cbrrr.encode_dag_cbor({
-			"t": "#identity",
-			"op": 1
-		}) + cbrrr.encode_dag_cbor({
-			"seq": firehose_seq,
-			"did": request["authed_did"],
-			"time": util.iso_string_now(),
-			"handle": handle
-		})
+		firehose_seq = con.execute(
+			"SELECT IFNULL(MAX(seq), 0) + 1 FROM firehose"
+		).fetchone()[0]
+		firehose_bytes = cbrrr.encode_dag_cbor(
+			{"t": "#identity", "op": 1}
+		) + cbrrr.encode_dag_cbor(
+			{
+				"seq": firehose_seq,
+				"did": request["authed_did"],
+				"time": util.iso_string_now(),
+				"handle": handle,
+			}
+		)
 		con.execute(
 			"INSERT INTO firehose (seq, timestamp, msg) VALUES (?, ?, ?)",
-			(firehose_seq, 0, firehose_bytes) # TODO: put sensible timestamp here...
+			(
+				firehose_seq,
+				0,
+				firehose_bytes,
+			),  # TODO: put sensible timestamp here...
 		)
-	await atproto_repo.firehose_broadcast(request, (firehose_seq, firehose_bytes))
+	await atproto_repo.firehose_broadcast(
+		request, (firehose_seq, firehose_bytes)
+	)
 
 	# temp hack: #account events shouldn't really be generated here
 	with get_db(request).new_con() as con:
 		# TODO: refactor to avoid duplicated logic between here and apply_writes
-		firehose_seq = con.execute("SELECT IFNULL(MAX(seq), 0) + 1 FROM firehose").fetchone()[0]
-		firehose_bytes = cbrrr.encode_dag_cbor({
-			"t": "#account",
-			"op": 1
-		}) + cbrrr.encode_dag_cbor({
-			"seq": firehose_seq,
-			"did": request["authed_did"],
-			"time": util.iso_string_now(),
-			"active": True
-		})
+		firehose_seq = con.execute(
+			"SELECT IFNULL(MAX(seq), 0) + 1 FROM firehose"
+		).fetchone()[0]
+		firehose_bytes = cbrrr.encode_dag_cbor(
+			{"t": "#account", "op": 1}
+		) + cbrrr.encode_dag_cbor(
+			{
+				"seq": firehose_seq,
+				"did": request["authed_did"],
+				"time": util.iso_string_now(),
+				"active": True,
+			}
+		)
 		con.execute(
 			"INSERT INTO firehose (seq, timestamp, msg) VALUES (?, ?, ?)",
-			(firehose_seq, 0, firehose_bytes) # TODO: put sensible timestamp here...
+			(
+				firehose_seq,
+				0,
+				firehose_bytes,
+			),  # TODO: put sensible timestamp here...
 		)
-	await atproto_repo.firehose_broadcast(request, (firehose_seq, firehose_bytes))
+	await atproto_repo.firehose_broadcast(
+		request, (firehose_seq, firehose_bytes)
+	)
 
 	return web.Response()
 
@@ -286,22 +310,26 @@ async def server_get_session(request: web.Request):
 			"did": request["authed_did"],
 			"email": "tfw_no@email.invalid",  # this and below are just here for testing lol
 			"emailConfirmed": True,
-			#"didDoc": {}, # iiuc this is only used for entryway usecase?
+			# "didDoc": {}, # iiuc this is only used for entryway usecase?
 		}
 	)
 
 
-def construct_app(routes, db: database.Database, client: aiohttp.ClientSession) -> web.Application:
-	cors = cors_middleware( # TODO: review and reduce scope - and maybe just /xrpc/*?
+def construct_app(
+	routes, db: database.Database, client: aiohttp.ClientSession
+) -> web.Application:
+	cors = cors_middleware(  # TODO: review and reduce scope - and maybe just /xrpc/*?
 		allow_all=True,
 		expose_headers=["*"],
 		allow_headers=["*"],
 		allow_methods=["*"],
 		allow_credentials=True,
-		max_age=100_000_000
+		max_age=100_000_000,
 	)
 
-	client.headers.update({"User-Agent": importlib.metadata.version("millipds")})
+	client.headers.update(
+		{"User-Agent": importlib.metadata.version("millipds")}
+	)
 
 	app = web.Application(middlewares=[cors, atproto_service_proxy_middleware])
 	app[MILLIPDS_DB] = db
@@ -322,17 +350,25 @@ def construct_app(routes, db: database.Database, client: aiohttp.ClientSession) 
 			web.get("/xrpc/app.bsky.actor.getProfile", service_proxy),
 			web.get("/xrpc/app.bsky.actor.getProfiles", service_proxy),
 			web.get("/xrpc/app.bsky.actor.getSuggestions", service_proxy),
-			web.get("/xrpc/app.bsky.actor.searchActorsTypeahead", service_proxy),
+			web.get(
+				"/xrpc/app.bsky.actor.searchActorsTypeahead", service_proxy
+			),
 			web.get("/xrpc/app.bsky.labeler.getServices", service_proxy),
-			web.get("/xrpc/app.bsky.notification.listNotifications", service_proxy),
-			web.get("/xrpc/app.bsky.notification.getUnreadCount", service_proxy),
+			web.get(
+				"/xrpc/app.bsky.notification.listNotifications", service_proxy
+			),
+			web.get(
+				"/xrpc/app.bsky.notification.getUnreadCount", service_proxy
+			),
 			web.post("/xrpc/app.bsky.notification.updateSeen", service_proxy),
 			web.get("/xrpc/app.bsky.graph.getList", service_proxy),
 			web.get("/xrpc/app.bsky.graph.getLists", service_proxy),
 			web.get("/xrpc/app.bsky.graph.getFollows", service_proxy),
 			web.get("/xrpc/app.bsky.graph.getFollowers", service_proxy),
 			web.get("/xrpc/app.bsky.graph.getStarterPack", service_proxy),
-			web.get("/xrpc/app.bsky.graph.getSuggestedFollowsByActor", service_proxy),
+			web.get(
+				"/xrpc/app.bsky.graph.getSuggestedFollowsByActor", service_proxy
+			),
 			web.get("/xrpc/app.bsky.graph.getActorStarterPacks", service_proxy),
 			web.post("/xrpc/app.bsky.graph.muteActor", service_proxy),
 			web.post("/xrpc/app.bsky.graph.unmuteActor", service_proxy),
@@ -349,8 +385,11 @@ def construct_app(routes, db: database.Database, client: aiohttp.ClientSession) 
 			web.get("/xrpc/app.bsky.feed.getActorLikes", service_proxy),
 			web.get("/xrpc/app.bsky.feed.getQuotes", service_proxy),
 			web.get("/xrpc/app.bsky.feed.getRepostedBy", service_proxy),
-			web.get("/xrpc/app.bsky.unspecced.getPopularFeedGenerators", service_proxy),
-			#web.get("/xrpc/chat.bsky.convo.listConvos", static_appview_proxy)
+			web.get(
+				"/xrpc/app.bsky.unspecced.getPopularFeedGenerators",
+				service_proxy,
+			),
+			# web.get("/xrpc/chat.bsky.convo.listConvos", static_appview_proxy)
 			# fmt on
 		]
 	)
@@ -358,7 +397,13 @@ def construct_app(routes, db: database.Database, client: aiohttp.ClientSession) 
 	return app
 
 
-async def run(db: database.Database, client: aiohttp.ClientSession, sock_path: Optional[str], host: str, port: int):
+async def run(
+	db: database.Database,
+	client: aiohttp.ClientSession,
+	sock_path: Optional[str],
+	host: str,
+	port: int,
+):
 	"""
 	This gets invoked via millipds.__main__.py
 	"""

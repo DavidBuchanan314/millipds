@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 # https://rogerbinns.github.io/apsw/bestpractice.html
 apsw.bestpractice.apply(apsw.bestpractice.recommended)
 
+
 class DBBlockStore(BlockStore):
 	"""
 	Adapt the db for consumption by the atmst library
@@ -34,7 +35,9 @@ class DBBlockStore(BlockStore):
 
 	def __init__(self, db: apsw.Connection, repo: str) -> None:
 		self.db = db
-		self.user_id = self.db.execute("SELECT id FROM user WHERE did=?", (repo,)).fetchone()[0]
+		self.user_id = self.db.execute(
+			"SELECT id FROM user WHERE did=?", (repo,)
+		).fetchone()[0]
 
 	def get_block(self, key: bytes) -> bytes:
 		row = self.db.execute(
@@ -46,7 +49,7 @@ class DBBlockStore(BlockStore):
 
 	def del_block(self, key: bytes) -> None:
 		raise NotImplementedError("TODO?")
-	
+
 	def put_block(self, key: bytes, value: bytes) -> None:
 		raise NotImplementedError("TODO?")
 
@@ -61,7 +64,9 @@ class Database:
 
 		try:
 			if self.config["db_version"] != static_config.MILLIPDS_DB_VERSION:
-				raise Exception("unrecognised db version (TODO: db migrations?!)")
+				raise Exception(
+					"unrecognised db version (TODO: db migrations?!)"
+				)
 
 		except apsw.SQLError as e:  # no such table, so lets create it
 			if "no such table" not in str(e):
@@ -80,9 +85,14 @@ class Database:
 
 		therefore we frequently spawn new connections when we need an isolated cursor
 		"""
-		return apsw.Connection(self.path, flags=(
-			apsw.SQLITE_OPEN_READONLY if readonly else apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE 
-		))
+		return apsw.Connection(
+			self.path,
+			flags=(
+				apsw.SQLITE_OPEN_READONLY
+				if readonly
+				else apsw.SQLITE_OPEN_READWRITE | apsw.SQLITE_OPEN_CREATE
+			),
+		)
 
 	def _init_tables(self):
 		logger.info("initing tables")
@@ -188,7 +198,9 @@ class Database:
 			)
 			"""
 		)
-		self.con.execute("CREATE INDEX blob_isrefd ON blob(refcount, refcount > 0)") # dunno how useful this is
+		self.con.execute(
+			"CREATE INDEX blob_isrefd ON blob(refcount, refcount > 0)"
+		)  # dunno how useful this is
 		self.con.execute("CREATE UNIQUE INDEX blob_repo_cid ON blob(repo, cid)")
 		self.con.execute("CREATE INDEX blob_since ON blob(since)")
 
@@ -341,7 +353,9 @@ class Database:
 		return row[0]
 
 	def handle_by_did(self, did: str) -> Optional[str]:
-		row = self.con.execute("SELECT handle FROM user WHERE did=?", (did,)).fetchone()
+		row = self.con.execute(
+			"SELECT handle FROM user WHERE did=?", (did,)
+		).fetchone()
 		if row is None:
 			return None
 		return row[0]
@@ -354,7 +368,9 @@ class Database:
 			return None
 		return row[0]
 
-	def list_repos(self) -> List[Tuple[str, cbrrr.CID, str]]:  # TODO: pagination
+	def list_repos(
+		self,
+	) -> List[Tuple[str, cbrrr.CID, str]]:  # TODO: pagination
 		return [
 			(did, cbrrr.CID(head), rev)
 			for did, head, rev in self.con.execute(

@@ -8,6 +8,8 @@ from .app_util import *
 logger = logging.getLogger(__name__)
 
 routes = web.RouteTableDef()
+
+
 def authenticated(handler):
 	async def authentication_handler(request: web.Request, *args, **kwargs):
 		# extract the auth token
@@ -33,8 +35,8 @@ def authenticated(handler):
 					"require": ["exp", "iat", "scope"],  # consider iat?
 					"verify_exp": True,
 					"verify_iat": True,
-					"strict_aud": True, # may be unnecessary
-				}
+					"strict_aud": True,  # may be unnecessary
+				},
 			)
 		except jwt.exceptions.PyJWTError:
 			raise web.HTTPUnauthorized(text="invalid jwt")

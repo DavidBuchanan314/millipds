@@ -11,8 +11,9 @@ I'm never planning on replacing sqlite with anything else, so the tight coupling
 
 import io
 from typing import List, TypedDict, Literal, TYPE_CHECKING, Optional, Tuple, Set
+
 if TYPE_CHECKING:
-	from typing import NotRequired # not suppored <= py3.10
+	from typing import NotRequired  # not suppored <= py3.10
 import apsw
 import aiohttp.web
 import base64
@@ -31,6 +32,7 @@ from . import util
 from . import crypto
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,8 +40,7 @@ logger = logging.getLogger(__name__)
 def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 	with db.new_con(readonly=True) as con:
 		row = con.execute(
-			"SELECT id, head, commit_bytes FROM user WHERE did=?",
-			(did,)
+			"SELECT id, head, commit_bytes FROM user WHERE did=?", (did,)
 		).fetchone()
 
 		if row is None:
@@ -56,10 +57,14 @@ def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 		bs = DBBlockStore(con, did)
 		ns = NodeStore(bs)
 
-		record_cid, proof_cids = proof.find_rpath_and_build_proof(ns, commit["data"], path)
+		record_cid, proof_cids = proof.find_rpath_and_build_proof(
+			ns, commit["data"], path
+		)
 		for cid in proof_cids:
 			cid_bytes = bytes(cid)
-			car.write(util.serialize_car_entry(cid_bytes, bs.get_block(cid_bytes)))
+			car.write(
+				util.serialize_car_entry(cid_bytes, bs.get_block(cid_bytes))
+			)
 
 		if record_cid is None:
 			return car.getvalue()
@@ -68,7 +73,7 @@ def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 		record_cid_bytes = bytes(record_cid)
 		record, *_ = con.execute(
 			"SELECT value FROM record WHERE repo=? AND cid=?",
-			(user_id, record_cid_bytes)
+			(user_id, record_cid_bytes),
 		).fetchone()
 		car.write(util.serialize_car_entry(record_cid_bytes, record))
 
@@ -77,21 +82,34 @@ def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 
 # https://github.com/bluesky-social/atproto/blob/main/lexicons/com/atproto/repo/applyWrites.json
 if TYPE_CHECKING:
-	WriteOp = TypedDict("WriteOp", {
-		"$type": Literal["com.atproto.repo.applyWrites#create", "com.atproto.repo.applyWrites#update", "com.atproto.repo.applyWrites#delete"],
-		"collection": str,
-		"rkey": NotRequired[str], # required for update, delete
-		"validate": NotRequired[bool],
-		"swapRecord": NotRequired[str],
-		"value": NotRequired[dict|str] # not required for delete - str is for base64-encoded dag-cbor
-	})
+	WriteOp = TypedDict(
+		"WriteOp",
+		{
+			"$type": Literal[
+				"com.atproto.repo.applyWrites#create",
+				"com.atproto.repo.applyWrites#update",
+				"com.atproto.repo.applyWrites#delete",
+			],
+			"collection": str,
+			"rkey": NotRequired[str],  # required for update, delete
+			"validate": NotRequired[bool],
+			"swapRecord": NotRequired[str],
+			"value": NotRequired[
+				dict | str
+			],  # not required for delete - str is for base64-encoded dag-cbor
+		},
+	)
+
 
 # This is perhaps the most complex function in the whole codebase.
 # There's probably some scope for refactoring, but I like the "directness" of it.
 # The work it does is inherently complex, i.e. the atproto MST record commit logic
 # The MST logic itself is hidden away inside the `atmst` module.
-def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: Optional[str]) -> Tuple[bytes, int, bytes]:
-	with db.new_con() as con: # one big transaction (we could perhaps work in two phases, prepare (via read-only conn) then commit?)
+def apply_writes(
+	db: Database, repo: str, writes: List["WriteOp"], swap_commit: Optional[str]
+) -> Tuple[bytes, int, bytes]:
+	# one big transaction (we could perhaps work in two phases, prepare (via read-only conn) then commit?)
+	with db.new_con() as con:
 		db_bs = DBBlockStore(con, repo)
 		mem_bs = MemoryBlockStore()
 		bs = OverlayBlockStore(mem_bs, db_bs)
@@ -99,11 +117,13 @@ def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: 
 		wrangler = NodeWrangler(ns)
 		user_id, prev_commit, signing_key_pem, head = con.execute(
 			"SELECT id, commit_bytes, signing_key, head FROM user WHERE did=?",
-			(repo,)
+			(repo,),
 		).fetchone()
 		if swap_commit is not None:
 			if cbrrr.CID.decode(swap_commit) != cbrrr.CID(head):
-				raise aiohttp.web.HTTPBadRequest(text="swapCommit did not match current head") # XXX: probably the wrong way to signal this error lol
+				raise aiohttp.web.HTTPBadRequest(
+					text="swapCommit did not match current head"
+				)  # XXX: probably the wrong way to signal this error lol
 		prev_commit = cbrrr.decode_dag_cbor(prev_commit)
 		prev_commit_root: cbrrr.CID = prev_commit["data"]
 		tid_now = util.tid_now()
@@ -113,24 +133,35 @@ def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: 
 		# step 0: apply writes into the MST
 		# TODO: should I forbid touching the same record more than once?
 		prev_root = prev_commit_root
-		results = [] # for result of applyWrites
+		results = []  # for result of applyWrites
 		for op in writes:
 			optype = op["$type"]
 			# TODO: rkey validation!
 			rkey = op.get("rkey") or tid_now
 			path = op["collection"] + "/" + rkey
 			prev_cid = NodeWalker(ns, prev_root).find_rpath(path)
-			if optype in ["com.atproto.repo.applyWrites#create", "com.atproto.repo.applyWrites#update"]:
+			if optype in [
+				"com.atproto.repo.applyWrites#create",
+				"com.atproto.repo.applyWrites#update",
+			]:
 				if optype == "com.atproto.repo.applyWrites#create":
 					if prev_cid is not None:
-						raise aiohttp.web.HTTPBadRequest(text="record already exists")
-				elif op.get("swapRecord"): # only applies to #update
+						raise aiohttp.web.HTTPBadRequest(
+							text="record already exists"
+						)
+				elif op.get("swapRecord"):  # only applies to #update
 					if cbrrr.CID.decode(op["swapRecord"]) != prev_cid:
-						raise aiohttp.web.HTTPBadRequest(text="swapRecord did not match")
+						raise aiohttp.web.HTTPBadRequest(
+							text="swapRecord did not match"
+						)
 
-				if isinstance(op["value"], dict): # normal
-					value_cbor = cbrrr.encode_dag_cbor(op["value"], atjson_mode=True)
-				elif isinstance(op["value"], str): # base64 dag-cbor record extension
+				if isinstance(op["value"], dict):  # normal
+					value_cbor = cbrrr.encode_dag_cbor(
+						op["value"], atjson_mode=True
+					)
+				elif isinstance(
+					op["value"], str
+				):  # base64 dag-cbor record extension
 					value_cbor = base64.b64decode(op["value"])
 				else:
 					raise Exception("invalid record value type")
@@ -138,28 +169,36 @@ def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: 
 				value_cid = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(value_cbor)
 				record_cbors[value_cid] = value_cbor
 				next_root = wrangler.put_record(prev_root, path, value_cid)
-				results.append({
-					"$type": optype + "Result",
-					"uri": f"at://{repo}/{path}",
-					"cid": value_cid.encode(),
-					"validationStatus": "unknown" # we are not currently aware of the concept of a lexicon!
-				})
+				results.append(
+					{
+						"$type": optype + "Result",
+						"uri": f"at://{repo}/{path}",
+						"cid": value_cid.encode(),
+						"validationStatus": "unknown",  # we are not currently aware of the concept of a lexicon!
+					}
+				)
 			elif optype == "com.atproto.repo.applyWrites#delete":
 				if op.get("swapRecord"):
 					if cbrrr.CID.decode(op["swapRecord"]) != prev_cid:
-						raise aiohttp.web.HTTPBadRequest(text="swapRecord did not match")
+						raise aiohttp.web.HTTPBadRequest(
+							text="swapRecord did not match"
+						)
 				next_root = wrangler.del_record(prev_root, path)
 				if prev_root == next_root:
-					raise aiohttp.web.HTTPBadRequest(text="no such record") # TODO: better error signalling!!!
-				results.append({
-					"$type": "com.atproto.repo.applyWrites#deleteResult"
-				})
+					raise aiohttp.web.HTTPBadRequest(
+						text="no such record"
+					)  # TODO: better error signalling!!!
+				results.append(
+					{"$type": "com.atproto.repo.applyWrites#deleteResult"}
+				)
 			else:
 				raise ValueError("invalid applyWrites type")
 			prev_root = next_root
 		next_commit_root = prev_root
 
-		logger.info(f"mst root {prev_commit_root.encode()} -> {next_commit_root.encode()}")
+		logger.info(
+			f"mst root {prev_commit_root.encode()} -> {next_commit_root.encode()}"
+		)
 
 		# step 1: diff the mst
 		created, deleted = mst_diff(ns, prev_commit_root, next_commit_root)
@@ -176,59 +215,71 @@ def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: 
 				# needed for blob decref
 				prior_value = con.execute(
 					"SELECT value FROM record WHERE repo=? AND nsid=? AND rkey=?",
-					(user_id,) + util.split_path(delta.path)
+					(user_id,) + util.split_path(delta.path),
 				).fetchone()[0]
 			if delta.delta_type == DeltaType.CREATED:
 				new_record_cids.append(delta.later_value)
-				firehose_ops.append({
-					"cid": delta.later_value,
-					"path": delta.path,
-					"action": "create"
-				})
+				firehose_ops.append(
+					{
+						"cid": delta.later_value,
+						"path": delta.path,
+						"action": "create",
+					}
+				)
 				new_value = record_cbors[delta.later_value]
-				firehose_blobs |= blob_incref_all(con, user_id, new_value, tid_now)
+				firehose_blobs |= blob_incref_all(
+					con, user_id, new_value, tid_now
+				)
 				con.execute(
 					"INSERT INTO record (repo, nsid, rkey, cid, since, value) VALUES (?, ?, ?, ?, ?, ?)",
-					(user_id,) + util.split_path(delta.path) + (bytes(delta.later_value), tid_now, new_value)
+					(user_id,)
+					+ util.split_path(delta.path)
+					+ (bytes(delta.later_value), tid_now, new_value),
 				)
 			elif delta.delta_type == DeltaType.UPDATED:
 				new_record_cids.append(delta.later_value)
-				firehose_ops.append({
-					"cid": delta.later_value,
-					"path": delta.path,
-					"action": "update"
-				})
+				firehose_ops.append(
+					{
+						"cid": delta.later_value,
+						"path": delta.path,
+						"action": "update",
+					}
+				)
 				new_value = record_cbors[delta.later_value]
-				firehose_blobs |= blob_incref_all(con, user_id, new_value, tid_now) # important to incref before decref
+				firehose_blobs |= blob_incref_all(
+					con, user_id, new_value, tid_now
+				)  # important to incref before decref
 				blob_decref_all(con, user_id, prior_value)
 				con.execute(
 					"UPDATE record SET cid=?, since=?, value=? WHERE repo=? AND nsid=? AND rkey=?",
-					(bytes(delta.later_value), tid_now, new_value, user_id) + util.split_path(delta.path)
+					(bytes(delta.later_value), tid_now, new_value, user_id)
+					+ util.split_path(delta.path),
 				)
 			elif delta.delta_type == DeltaType.DELETED:
-				firehose_ops.append({
-					"cid": None,
-					"path": delta.path,
-					"action": "delete"
-				})
+				firehose_ops.append(
+					{"cid": None, "path": delta.path, "action": "delete"}
+				)
 				blob_decref_all(con, user_id, prior_value)
 				con.execute(
 					"DELETE FROM record WHERE repo=? AND nsid=? AND rkey=?",
-					(user_id,) + util.split_path(delta.path)
+					(user_id,) + util.split_path(delta.path),
 				)
 			else:
 				raise Exception("unreachable")
-		
+
 		# step 3: persist MST changes (we have to do this *after* record_diff because it might need to read some old blocks from the db)
 		con.executemany(
 			"DELETE FROM mst WHERE repo=? AND cid=?",
-			[(user_id, cid) for cid in map(bytes, deleted)]
+			[(user_id, cid) for cid in map(bytes, deleted)],
 		)
 		con.executemany(
 			"INSERT INTO mst (repo, cid, since, value) VALUES (?, ?, ?, ?)",
-			[(user_id, cid, tid_now, bs.get_block(cid)) for cid in map(bytes, created)]
+			[
+				(user_id, cid, tid_now, bs.get_block(cid))
+				for cid in map(bytes, created)
+			],
 		)
-		
+
 		# prepare the signed commit object
 		commit_obj = {
 			"version": 3,
@@ -239,7 +290,7 @@ def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: 
 		}
 		commit_obj["sig"] = crypto.raw_sign(
 			crypto.privkey_from_pem(signing_key_pem),
-			cbrrr.encode_dag_cbor(commit_obj)
+			cbrrr.encode_dag_cbor(commit_obj),
 		)
 		commit_bytes = cbrrr.encode_dag_cbor(commit_obj)
 		commit_cid = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(commit_bytes)
@@ -247,18 +298,22 @@ def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: 
 		# persist commit object
 		con.execute(
 			"UPDATE user SET commit_bytes=?, head=?, rev=? WHERE did=?",
-			(commit_bytes, bytes(commit_cid), tid_now, repo)
+			(commit_bytes, bytes(commit_cid), tid_now, repo),
 		)
 
 		car = io.BytesIO()
 		cw = util.CarWriter(car, commit_cid)
 		cw.write_block(commit_cid, commit_bytes)
-		for mst_cid in created | {next_commit_root}: # unconditionally include the new root, to enable context-free deletion proofs if the top of the tree has been "cut off" without modifying the rest of the tree. see https://github.com/bluesky-social/atproto/pull/3033#issuecomment-2516402420
+		for mst_cid in (
+			created | {next_commit_root}
+		):  # unconditionally include the new root, to enable context-free deletion proofs if the top of the tree has been "cut off" without modifying the rest of the tree. see https://github.com/bluesky-social/atproto/pull/3033#issuecomment-2516402420
 			cw.write_block(mst_cid, bs.get_block(bytes(mst_cid)))
 		for record_cid in new_record_cids:
 			cw.write_block(record_cid, record_cbors[record_cid])
-		
-		firehose_seq = con.execute("SELECT IFNULL(MAX(seq), 0) + 1 FROM firehose").fetchone()[0]
+
+		firehose_seq = con.execute(
+			"SELECT IFNULL(MAX(seq), 0) + 1 FROM firehose"
+		).fetchone()[0]
 		firehose_body = {
 			"ops": firehose_ops,
 			"seq": firehose_seq,
@@ -273,21 +328,21 @@ def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: 
 			"rebase": False,  # deprecated but still required
 			"tooBig": False,  # TODO: actually check lol
 		}
-		firehose_bytes = cbrrr.encode_dag_cbor({
-			"t": "#commit",
-			"op": 1
-		}) + cbrrr.encode_dag_cbor(firehose_body)
+		firehose_bytes = cbrrr.encode_dag_cbor(
+			{"t": "#commit", "op": 1}
+		) + cbrrr.encode_dag_cbor(firehose_body)
 		con.execute(
 			"INSERT INTO firehose (seq, timestamp, msg) VALUES (?, ?, ?)",
-			(firehose_seq, 0, firehose_bytes) # TODO: put sensible timestamp here...
+			(
+				firehose_seq,
+				0,
+				firehose_bytes,
+			),  # TODO: put sensible timestamp here...
 		)
 
 		applywrites_res = {
-			"commit": {
-				"cid": commit_cid.encode(),
-				"rev": tid_now
-			},
-			"results": results
+			"commit": {"cid": commit_cid.encode(), "rev": tid_now},
+			"results": results,
 		}
 
 		return applywrites_res, firehose_seq, firehose_bytes
@@ -297,22 +352,26 @@ def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: 
 # NB: both of these will incref/decref the same blob multiple times, if a record contains the same blob multiple times.
 # this is mildly sub-optimal perf-wise but it keeps the code simple.
 # (why would you reference the same blob multiple times anyway?)
-def blob_incref_all(con: apsw.Connection, user_id: int, record_bytes: bytes, tid: str) -> Set[cbrrr.CID]:
+def blob_incref_all(
+	con: apsw.Connection, user_id: int, record_bytes: bytes, tid: str
+) -> Set[cbrrr.CID]:
 	new_blobs = set()
 	for ref in util.enumerate_blob_cids(cbrrr.decode_dag_cbor(record_bytes)):
 		new_blobs.add(ref)
 		blob_incref(con, user_id, ref, tid)
 	return new_blobs
 
+
 def blob_decref_all(con: apsw.Connection, user_id: int, record_bytes: bytes):
 	for ref in util.enumerate_blob_cids(cbrrr.decode_dag_cbor(record_bytes)):
 		blob_decref(con, user_id, ref)
+
 
 def blob_incref(con: apsw.Connection, user_id: int, ref: cbrrr.CID, tid: str):
 	# also set `since` if this is the first time a blob has ever been ref'd
 	con.execute(
 		"UPDATE blob SET refcount=refcount+1, since=IFNULL(since, ?) WHERE blob.repo=? AND blob.cid=?",
-		(tid, user_id, bytes(ref))
+		(tid, user_id, bytes(ref)),
 	)
 	changes = con.changes()  # number of updated rows
 
@@ -320,20 +379,27 @@ def blob_incref(con: apsw.Connection, user_id: int, ref: cbrrr.CID, tid: str):
 		return  # happy path
 
 	if changes == 0:
-		raise ValueError("tried to incref a blob that doesn't exist") # could happen if e.g. user didn't upload blob first
-	
+		raise ValueError(
+			"tried to incref a blob that doesn't exist"
+		)  # could happen if e.g. user didn't upload blob first
+
 	# changes > 1
-	raise ValueError("welp, that's not supposed to happen") # should be impossible given UNIQUE constraints
+	raise ValueError(
+		"welp, that's not supposed to happen"
+	)  # should be impossible given UNIQUE constraints
+
 
 def blob_decref(con: apsw.Connection, user_id: int, ref: cbrrr.CID):
 	blob_id, refcount = con.execute(
 		"UPDATE blob SET refcount=refcount-1 WHERE blob.repo=? AND blob.cid=? RETURNING id, refcount",
-		(user_id, bytes(ref))
+		(user_id, bytes(ref)),
 	).fetchone()
 
-	assert(con.changes() == 1)
-	assert(refcount >= 0)
+	assert con.changes() == 1
+	assert refcount >= 0
 
 	if refcount == 0:
-		con.execute("DELETE FROM blob_part WHERE blob=?", (blob_id,)) # TODO: could also make this happen in a delete hook?
+		con.execute(
+			"DELETE FROM blob_part WHERE blob=?", (blob_id,)
+		)  # TODO: could also make this happen in a delete hook?
 		con.execute("DELETE FROM blob WHERE id=?", (blob_id,))
