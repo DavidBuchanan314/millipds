@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
 	"cbrrr >= 1.0.0, < 2",
-	"atmst >= 0.0.4",
+	"atmst @ git+https://github.com/DavidBuchanan314/atmst.git",
 	"pyjwt[crypto]",
 	"cryptography",
 	"aiohttp",
