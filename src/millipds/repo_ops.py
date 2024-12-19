@@ -24,6 +24,7 @@ from atmst.mst.node_store import NodeStore
 from atmst.mst.node_wrangler import NodeWrangler
 from atmst.mst.node_walker import NodeWalker
 from atmst.mst.diff import mst_diff, record_diff, DeltaType
+from atmst.mst import proof
 
 from .database import Database, DBBlockStore
 from . import util
@@ -54,26 +55,21 @@ def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 
 		bs = DBBlockStore(con, did)
 		ns = NodeStore(bs)
-		walker = NodeWalker(ns, commit["data"])
 
-		#logger.info(path)
-		record_cid = walker.find_value(path)
-		#logger.info(walker.stack)
+		record_cid, proof_cids = proof.find_rpath_and_build_proof(ns, commit["data"], path)
+		for cid in proof_cids:
+			cid_bytes = bytes(cid)
+			car.write(util.serialize_car_entry(cid_bytes, bs.get_block(cid_bytes)))
+
 		if record_cid is None:
-			logger.info("record not found")
-			return None
-		
-		for frame in walker.stack:
-			node = frame.node
-			car.write(util.serialize_car_entry(bytes(node.cid), node.serialised))
-		
-		record_cid_bytes = bytes(record_cid)
+			return car.getvalue()
 
+		# we don't have a neat abstraction for fetching records yet...
+		record_cid_bytes = bytes(record_cid)
 		record, *_ = con.execute(
 			"SELECT value FROM record WHERE repo=? AND cid=?",
 			(user_id, record_cid_bytes)
 		).fetchone()
-
 		car.write(util.serialize_car_entry(record_cid_bytes, record))
 
 		return car.getvalue()
@@ -123,7 +119,7 @@ def apply_writes(db: Database, repo: str, writes: List["WriteOp"], swap_commit: 
 			# TODO: rkey validation!
 			rkey = op.get("rkey") or tid_now
 			path = op["collection"] + "/" + rkey
-			prev_cid = NodeWalker(ns, prev_root).find_value(path)
+			prev_cid = NodeWalker(ns, prev_root).find_rpath(path)
 			if optype in ["com.atproto.repo.applyWrites#create", "com.atproto.repo.applyWrites#update"]:
 				if optype == "com.atproto.repo.applyWrites#create":
 					if prev_cid is not None:
