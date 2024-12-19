@@ -39,6 +39,9 @@ docs = [ # uhhhhh I'm not currently using these lol
 ]
 test = [
 	"requests",
+	"pytest",
+	"pytest-aio",
+	"pytest-aiohttp",
 ]
 
 [project.urls]
