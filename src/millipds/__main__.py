@@ -216,7 +216,7 @@ def main():
 		else:
 			print("invalid account subcommand")
 	elif args["run"]:
-		async def run_with_client():
+		async def run_service_with_client():
 			async with aiohttp.ClientSession() as client:
 				await service.run(
 					db=db,
@@ -225,7 +225,7 @@ def main():
 					host=args["--listen_host"],
 					port=int(args["--listen_port"]),
 				)
-		asyncio.run(run_with_client())
+		asyncio.run(run_service_with_client())
 	else:
 		print("CLI arg parse error?!")
 

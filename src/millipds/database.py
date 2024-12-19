@@ -53,6 +53,7 @@ class DBBlockStore(BlockStore):
 
 class Database:
 	def __init__(self, path: str = static_config.MAIN_DB_PATH) -> None:
+		logger.info(f"opening database at {path}")
 		self.path = path
 		util.mkdirs_for_file(path)
 		self.con = self.new_con()
