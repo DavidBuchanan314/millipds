@@ -141,6 +141,7 @@ AUTH_PANEL_TAIL: html = """
 </html>
 """
 
+
 def authn_page() -> str:
 	authn_body: html = """\
 		<h3>put yer creds in the box.</h3>
@@ -150,6 +151,7 @@ def authn_page() -> str:
 			<input type="submit" value="sign in">
 		</form>"""
 	return AUTH_PANEL_HEAD + authn_body + AUTH_PANEL_TAIL
+
 
 def authz_page() -> str:
 	authz_body: html = """\
@@ -163,8 +165,9 @@ def authz_page() -> str:
 		<form action="/oauth/foobar" method="POST">
 			<input type="submit" value="authorize">
 		</form>"""
-	
+
 	return AUTH_PANEL_HEAD + authz_body + AUTH_PANEL_TAIL
+
 
 def error_page(msg: str) -> str:
 	error_body: html = f"""\
@@ -177,10 +180,15 @@ def error_page(msg: str) -> str:
 
 	return AUTH_PANEL_HEAD + error_body + AUTH_PANEL_TAIL
 
+
 if __name__ == "__main__":
 	with open("authn_test.html", "w") as authn:
 		authn.write(authn_page())
 	with open("authz_test.html", "w") as authz:
 		authz.write(authz_page())
 	with open("error_test.html", "w") as authz:
-		authz.write(error_page("oh no something bad happened. you probably used the wrong password. idiot."))
+		authz.write(
+			error_page(
+				"oh no something bad happened. you probably used the wrong password. idiot."
+			)
+		)

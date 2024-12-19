@@ -38,11 +38,13 @@ JWT_SIGNATURE_ALGS = {
 }
 
 MULTICODEC_PUBKEY_PREFIX = {
-	ec.SECP256K1: b"\xe7\x01", # varint(0xe7)
-	ec.SECP256R1: b"\x80\x24", # varint(0x1200)
+	ec.SECP256K1: b"\xe7\x01",  # varint(0xe7)
+	ec.SECP256R1: b"\x80\x24",  # varint(0x1200)
 }
 
-DETERMINISTIC_ECDSA_SHA256 = ec.ECDSA(hashes.SHA256(), deterministic_signing=True)
+DETERMINISTIC_ECDSA_SHA256 = ec.ECDSA(
+	hashes.SHA256(), deterministic_signing=True
+)
 
 
 def apply_low_s_mitigation(dss_sig: bytes, curve: ec.EllipticCurve) -> bytes:
@@ -58,6 +60,7 @@ def assert_dss_sig_is_low_s(dss_sig: bytes, curve: ec.EllipticCurve) -> None:
 	n = CURVE_ORDER[type(curve)]
 	if s > n // 2:
 		raise InvalidSignature("high-S signature")
+
 
 def raw_sign(privkey: ec.EllipticCurvePrivateKey, data: bytes) -> bytes:
 	r, s = decode_dss_signature(
@@ -106,13 +109,16 @@ def pubkey_from_pem(pem: str) -> ec.EllipticCurvePublicKey:
 def jwt_signature_alg_for_pem(pem: str) -> Literal["ES256", "ES256K"]:
 	return JWT_SIGNATURE_ALGS[type(privkey_from_pem(pem).curve)]
 
+
 def encode_pubkey_as_did_key(pubkey: ec.EllipticCurvePublicKey) -> str:
 	compressed_public_bytes = pubkey.public_bytes(
-		serialization.Encoding.X962,
-		serialization.PublicFormat.CompressedPoint
+		serialization.Encoding.X962, serialization.PublicFormat.CompressedPoint
 	)
-	multicodec = MULTICODEC_PUBKEY_PREFIX[type(pubkey.curve)] + compressed_public_bytes
+	multicodec = (
+		MULTICODEC_PUBKEY_PREFIX[type(pubkey.curve)] + compressed_public_bytes
+	)
 	return "did:key:z" + base58.b58encode(multicodec).decode()
+
 
 def plc_sign(privkey: ec.EllipticCurvePrivateKey, op: dict) -> str:
 	if "sig" in op:

@@ -67,6 +67,7 @@ import urllib.parse
 from getpass import getpass
 
 from docopt import docopt
+import aiohttp
 
 import cbrrr
 
@@ -85,7 +86,8 @@ def main():
 	"""
 
 	args = docopt(
-		__doc__, version=f"millipds version {importlib.metadata.version('millipds')}"
+		__doc__,
+		version=f"millipds version {importlib.metadata.version('millipds')}",
 	)
 
 	if args["init"]:
@@ -96,14 +98,16 @@ def main():
 				" or manually delete the db and try again."
 			)
 			return
-		if args["--dev"]: # like prod but http://
+		if args["--dev"]:  # like prod but http://
 			db.update_config(
 				pds_pfx=f'http://{args["<hostname>"]}',
 				pds_did=f'did:web:{urllib.parse.quote(args["<hostname>"])}',
 				bsky_appview_pfx="https://api.bsky.app",
 				bsky_appview_did="did:web:api.bsky.app",
 			)
-		elif args["--sandbox"]: # now-defunct, need to figure out how to point at local infra
+		elif args[
+			"--sandbox"
+		]:  # now-defunct, need to figure out how to point at local infra
 			db.update_config(
 				pds_pfx=f'https://{args["<hostname>"]}',
 				pds_did=f'did:web:{urllib.parse.quote(args["<hostname>"])}',
@@ -121,11 +125,15 @@ def main():
 		db.print_config()
 		return
 	elif args["util"]:
-		if args["keygen"]: # TODO: deprecate in favour of openssl?
+		if args["keygen"]:  # TODO: deprecate in favour of openssl?
 			if args["--k256"]:
-				privkey = crypto.keygen_k256() # openssl ecparam -name secp256k1 -genkey -noout
-			else: # default
-				privkey = crypto.keygen_p256() # openssl ecparam -name prime256v1 -genkey -noout
+				privkey = (
+					crypto.keygen_k256()
+				)  # openssl ecparam -name secp256k1 -genkey -noout
+			else:  # default
+				privkey = (
+					crypto.keygen_p256()
+				)  # openssl ecparam -name prime256v1 -genkey -noout
 			print(crypto.privkey_to_pem(privkey), end="")
 		elif args["print_pubkey"]:
 			with open(args["<pem>"]) as pem:
@@ -142,20 +150,27 @@ def main():
 				raise ValueError("invalid did:key")
 			genesis = {
 				"type": "plc_operation",
-				"rotationKeys": [ crypto.encode_pubkey_as_did_key(rotation_key.public_key()) ],
-				"verificationMethods": { "atproto": args["--repo_pubkey"] },
-				"alsoKnownAs": [ "at://" + args["--handle"] ],
+				"rotationKeys": [
+					crypto.encode_pubkey_as_did_key(rotation_key.public_key())
+				],
+				"verificationMethods": {"atproto": args["--repo_pubkey"]},
+				"alsoKnownAs": ["at://" + args["--handle"]],
 				"services": {
 					"atproto_pds": {
 						"type": "AtprotoPersonalDataServer",
-						"endpoint": args["--pds_host"]
+						"endpoint": args["--pds_host"],
 					}
 				},
 				"prev": None,
 			}
 			genesis["sig"] = crypto.plc_sign(rotation_key, genesis)
-			genesis_digest = hashlib.sha256(cbrrr.encode_dag_cbor(genesis)).digest()
-			plc = "did:plc:" + base64.b32encode(genesis_digest)[:24].lower().decode()
+			genesis_digest = hashlib.sha256(
+				cbrrr.encode_dag_cbor(genesis)
+			).digest()
+			plc = (
+				"did:plc:"
+				+ base64.b32encode(genesis_digest)[:24].lower().decode()
+			)
 			with open(args["--genesis_json"], "w") as out:
 				json.dump(genesis, out, indent=4)
 			print(plc)
@@ -167,8 +182,10 @@ def main():
 			if args["--prev_op"]:
 				with open(args["--prev_op"]) as op_json:
 					prev_op = json.load(op_json)
-				op["prev"] = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(cbrrr.encode_dag_cbor(prev_op)).encode()
-			del op["sig"] # remove any existing sig
+				op["prev"] = cbrrr.CID.cidv1_dag_cbor_sha256_32_from(
+					cbrrr.encode_dag_cbor(prev_op)
+				).encode()
+			del op["sig"]  # remove any existing sig
 			op["sig"] = crypto.plc_sign(rotation_key, op)
 			print(json.dumps(op, indent=4))
 		else:
@@ -215,14 +232,18 @@ def main():
 		else:
 			print("invalid account subcommand")
 	elif args["run"]:
-		asyncio.run(
-			service.run(
-				db=db,
-				sock_path=args["--sock_path"],
-				host=args["--listen_host"],
-				port=int(args["--listen_port"]),
-			)
-		)
+
+		async def run_service_with_client():
+			async with aiohttp.ClientSession() as client:
+				await service.run(
+					db=db,
+					client=client,
+					sock_path=args["--sock_path"],
+					host=args["--listen_host"],
+					port=int(args["--listen_port"]),
+				)
+
+		asyncio.run(run_service_with_client())
 	else:
 		print("CLI arg parse error?!")
 
