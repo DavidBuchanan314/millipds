@@ -23,3 +23,5 @@ def get_firehose_queues(req: web.Request):
 
 def get_firehose_queues_lock(req: web.Request):
 	return req.app[MILLIPDS_FIREHOSE_QUEUES_LOCK]
+
+__all__ = ["MILLIPDS_DB", "MILLIPDS_AIOHTTP_CLIENT", "MILLIPDS_FIREHOSE_QUEUES", "MILLIPDS_FIREHOSE_QUEUES_LOCK", "get_db", "get_client", "get_firehose_queues", "get_firehose_queues_lock"]
