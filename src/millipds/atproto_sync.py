@@ -102,7 +102,7 @@ async def sync_get_record(request: web.Request):
 	)
 
 	if car is None:
-		raise web.HTTPNotFound(text="did or record not found")
+		raise web.HTTPNotFound(text="did not found")
 	
 	return web.Response(
 		body=car,

@@ -42,6 +42,7 @@ test = [
 	"pytest",
 	"pytest-aio",
 	"pytest-aiohttp",
+	"pytest-depends",
 ]
 
 [project.urls]

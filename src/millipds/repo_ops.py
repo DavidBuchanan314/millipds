@@ -34,7 +34,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# record plus full merkle path as CAR
+# record plus full merkle path as CAR (or nonexistence proof)
 def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 	with db.new_con(readonly=True) as con:
 		row = con.execute(

@@ -110,34 +110,34 @@ async def s(aiolib):
 		yield s
 
 @pytest.fixture
-def PDS(test_pds):
+def pds_host(test_pds) -> str:
 	return test_pds.endpoint
 
-async def test_hello_world(s, PDS):
-	async with s.get(PDS + "/") as r:
+async def test_hello_world(s, pds_host):
+	async with s.get(pds_host + "/") as r:
 		r = await r.text()
 		print(r)
 		assert "Hello" in r
 
-async def test_describeServer(s, PDS):
-	async with s.get(PDS + "/xrpc/com.atproto.server.describeServer") as r:
+async def test_describeServer(s, pds_host):
+	async with s.get(pds_host + "/xrpc/com.atproto.server.describeServer") as r:
 		print(await r.json())
 
-async def test_createSession_no_args(s, PDS):
+async def test_createSession_no_args(s, pds_host):
 	# no args
-	async with s.post(PDS + "/xrpc/com.atproto.server.createSession") as r:
+	async with s.post(pds_host + "/xrpc/com.atproto.server.createSession") as r:
 		assert r.status != 200
 
 invalid_logins = [
-	{"identifier": [], "password": "123"},
+	{"identifier": [], "password": TEST_PASSWORD},
 	{"identifier": "example.invalid", "password": "wrongPassword123"},
 	{"identifier": TEST_HANDLE, "password": "wrongPassword123"},
 ]
 
 @pytest.mark.parametrize("login_data", invalid_logins)
-async def test_invalid_logins(s, PDS, login_data):
+async def test_invalid_logins(s, pds_host, login_data):
 	async with s.post(
-		PDS + "/xrpc/com.atproto.server.createSession",
+		pds_host + "/xrpc/com.atproto.server.createSession",
 		json=login_data,
 	) as r:
 		assert r.status != 200
@@ -148,9 +148,9 @@ valid_logins = [
 ]
 
 @pytest.mark.parametrize("login_data", valid_logins)
-async def test_valid_logins(s, PDS, login_data):
+async def test_valid_logins(s, pds_host, login_data):
 	async with s.post(
-		PDS + "/xrpc/com.atproto.server.createSession",
+		pds_host + "/xrpc/com.atproto.server.createSession",
 		json=login_data,
 	) as r:
 		r = await r.json()
@@ -164,7 +164,7 @@ async def test_valid_logins(s, PDS, login_data):
 
 	# good auth
 	async with s.get(
-		PDS + "/xrpc/com.atproto.server.getSession",
+		pds_host + "/xrpc/com.atproto.server.getSession",
 		headers=authn,
 	) as r:
 		print(await r.json())
@@ -172,7 +172,7 @@ async def test_valid_logins(s, PDS, login_data):
 
 	# bad auth
 	async with s.get(
-		PDS + "/xrpc/com.atproto.server.getSession",
+		pds_host + "/xrpc/com.atproto.server.getSession",
 		headers={"Authorization": "Bearer " + token[:-1]},
 	) as r:
 		print(await r.text())
@@ -180,33 +180,33 @@ async def test_valid_logins(s, PDS, login_data):
 
 	# bad auth
 	async with s.get(
-		PDS + "/xrpc/com.atproto.server.getSession",
+		pds_host + "/xrpc/com.atproto.server.getSession",
 		headers={"Authorization": "Bearest"},
 	) as r:
 		print(await r.text())
 		assert r.status != 200
 
-async def test_sync_getRepo(s, PDS):
+async def test_sync_getRepo(s, pds_host):
 	async with s.get(
-		PDS + "/xrpc/com.atproto.sync.getRepo",
+		pds_host + "/xrpc/com.atproto.sync.getRepo",
 		params={"did": TEST_DID},
 	) as r:
 		assert r.status == 200
 
 @pytest.fixture
-async def authn(s, PDS):
+async def authn(s, pds_host):
 	async with s.post(
-		PDS + "/xrpc/com.atproto.server.createSession",
+		pds_host + "/xrpc/com.atproto.server.createSession",
 		json=valid_logins[0],
 	) as r:
 		r = await r.json()
 	token = r["accessJwt"]
 	return {"Authorization": "Bearer " + token}
 
-async def test_repo_applyWrites(s, PDS, authn):
+async def test_repo_applyWrites(s, pds_host, authn):
 	for i in range(10):
 		async with s.post(
-			PDS + "/xrpc/com.atproto.repo.applyWrites",
+			pds_host + "/xrpc/com.atproto.repo.applyWrites",
 			headers=authn,
 			json={
 				"repo": TEST_DID,
@@ -224,12 +224,12 @@ async def test_repo_applyWrites(s, PDS, authn):
 			print(await r.json())
 			assert r.status == 200
 
-async def test_repo_uploadBlob(s, PDS, authn):
+async def test_repo_uploadBlob(s, pds_host, authn):
 	blob = os.urandom(0x100000)
 
 	for _ in range(2): # test reupload is nop
 		async with s.post(
-			PDS + "/xrpc/com.atproto.repo.uploadBlob",
+			pds_host + "/xrpc/com.atproto.repo.uploadBlob",
 			headers=authn|{"content-type": "blah"},
 			data=blob,
 		) as r:
@@ -239,7 +239,7 @@ async def test_repo_uploadBlob(s, PDS, authn):
 
 	# get the blob refcount >0
 	async with s.post(
-		PDS + "/xrpc/com.atproto.repo.createRecord",
+		pds_host + "/xrpc/com.atproto.repo.createRecord",
 		headers=authn,
 		json={
 			"repo": TEST_DID,
@@ -251,22 +251,50 @@ async def test_repo_uploadBlob(s, PDS, authn):
 		assert r.status == 200
 
 	async with s.get(
-		PDS + "/xrpc/com.atproto.sync.getBlob",
+		pds_host + "/xrpc/com.atproto.sync.getBlob",
 		params={"did": TEST_DID, "cid": res["blob"]["ref"]["$link"]},
 	) as r:
 		downloaded_blob = await r.read()
 		assert(downloaded_blob == blob)
 
 	async with s.get(
-		PDS + "/xrpc/com.atproto.sync.getRepo",
+		pds_host + "/xrpc/com.atproto.sync.getRepo",
 		params={"did": TEST_DID},
 	) as r:
 		assert r.status == 200
 		open("repo.car", "wb").write(await r.read())
 
-async def test_sync_getRepo_not_found(s, PDS):
+async def test_sync_getRepo_not_found(s, pds_host):
 	async with s.get(
-		PDS + "/xrpc/com.atproto.sync.getRepo",
+		pds_host + "/xrpc/com.atproto.sync.getRepo",
 		params={"did": "did:web:nonexistent.invalid"},
 	) as r:
 		assert r.status == 404
+
+@pytest.mark.depends(on=["test_repo_applyWrites"])
+async def test_sync_getRecord_nonexistent(s, pds_host):
+	# nonexistent DID should still 404
+	async with s.get(
+		pds_host + "/xrpc/com.atproto.sync.getRecord",
+		params={
+			"did": "did:web:nonexistent.invalid",
+			"collection": "app.bsky.feed.post",
+			"rkey": "nonexistent",
+		},
+	) as r:
+		assert r.status == 404
+	
+	# but extant DID with nonexistent record should 200, with exclusion proof CAR
+	async with s.get(
+		pds_host + "/xrpc/com.atproto.sync.getRecord",
+		params={
+			"did": TEST_DID,
+			"collection": "app.bsky.feed.post",
+			"rkey": "nonexistent",
+		},
+	) as r:
+		assert r.status == 200
+		assert r.content_type == "application/vnd.ipld.car"
+		proof_car = await r.read()
+		assert proof_car # nonempty
+		# TODO: make sure the proof is valid
