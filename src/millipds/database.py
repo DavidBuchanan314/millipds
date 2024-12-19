@@ -314,9 +314,6 @@ class Database:
 				"INSERT INTO mst(repo, cid, since, value) VALUES (?, ?, ?, ?)",
 				(user_id, bytes(empty_mst.cid), tid, empty_mst.serialised),
 			)
-			#util.mkdirs_for_file(repo_path)
-			#UserDatabase.init_tables(self.con, did, repo_path, tid)
-		#self.con.execute("DETACH spoke")
 
 	def verify_account_login(
 		self, did_or_handle: str, password: str

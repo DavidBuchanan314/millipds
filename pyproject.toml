@@ -55,3 +55,6 @@ millipds = "millipds.__main__:main"
 indent-style = "tab"
 
 [tool.setuptools_scm]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "session"

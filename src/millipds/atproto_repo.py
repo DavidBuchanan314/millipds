@@ -115,7 +115,7 @@ async def repo_delete_record(request: web.Request):
 @routes.get("/xrpc/com.atproto.repo.describeRepo")
 async def repo_describe_repo(request: web.Request):
 	if "repo" not in request.query:
-		return web.HTTPBadRequest(text="missing repo")
+		raise web.HTTPBadRequest(text="missing repo")
 	did_or_handle = request.query["repo"]
 	with get_db(request).new_con(readonly=True) as con:
 		user_id, did, handle = con.execute(
@@ -141,11 +141,11 @@ async def repo_describe_repo(request: web.Request):
 @routes.get("/xrpc/com.atproto.repo.getRecord")
 async def repo_get_record(request: web.Request):
 	if "repo" not in request.query:
-		return web.HTTPBadRequest(text="missing repo")
+		raise web.HTTPBadRequest(text="missing repo")
 	if "collection" not in request.query:
-		return web.HTTPBadRequest(text="missing collection")
+		raise web.HTTPBadRequest(text="missing collection")
 	if "rkey" not in request.query:
-		return web.HTTPBadRequest(text="missing rkey")
+		raise web.HTTPBadRequest(text="missing rkey")
 	did_or_handle = request.query["repo"]
 	collection = request.query["collection"]
 	rkey = request.query["rkey"]
@@ -157,12 +157,12 @@ async def repo_get_record(request: web.Request):
 	).fetchone()
 	if row is None:
 		return await service_proxy(request) # forward to appview
-		#return web.HTTPNotFound(text="record not found")
+		#raise web.HTTPNotFound(text="record not found")
 	cid_out, value = row
 	cid_out = cbrrr.CID(cid_out)
 	if cid_in is not None:
 		if cbrrr.CID.decode(cid_in) != cid_out:
-			return web.HTTPNotFound(text="record not found with matching CID")
+			raise web.HTTPNotFound(text="record not found with matching CID")
 	return web.json_response({
 		"uri": f"at://{did_or_handle}/{collection}/{rkey}", # TODO rejig query to get the did out always,
 		"cid": cid_out.encode(),
@@ -173,12 +173,12 @@ async def repo_get_record(request: web.Request):
 @routes.get("/xrpc/com.atproto.repo.listRecords")
 async def repo_list_records(request: web.Request):
 	if "repo" not in request.query:
-		return web.HTTPBadRequest(text="missing repo")
+		raise web.HTTPBadRequest(text="missing repo")
 	if "collection" not in request.query:
-		return web.HTTPBadRequest(text="missing collection")
+		raise web.HTTPBadRequest(text="missing collection")
 	limit = int(request.query.get("limit", 50))
 	if limit < 1 or limit > 100:
-		return web.HTTPBadRequest(text="limit out of range")
+		raise web.HTTPBadRequest(text="limit out of range")
 	reverse = request.query.get("reverse") == "true"
 	cursor = request.query.get("cursor", "" if reverse else "\xff")
 	did_or_handle = request.query["repo"]

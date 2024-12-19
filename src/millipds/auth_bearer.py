@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 routes = web.RouteTableDef()
 def authenticated(handler):
-	def authentication_handler(request: web.Request, *args, **kwargs):
+	async def authentication_handler(request: web.Request, *args, **kwargs):
 		# extract the auth token
 		auth = request.headers.get("Authorization")
 		if auth is None:
@@ -29,8 +29,12 @@ def authenticated(handler):
 				key=db.config["jwt_access_secret"],
 				algorithms=["HS256"],
 				audience=db.config["pds_did"],
-				require=["exp", "scope"],  # consider iat?
-				strict_aud=True,
+				options={
+					"require": ["exp", "iat", "scope"],  # consider iat?
+					"verify_exp": True,
+					"verify_iat": True,
+					"strict_aud": True, # may be unnecessary
+				}
 			)
 		except jwt.exceptions.PyJWTError:
 			raise web.HTTPUnauthorized(text="invalid jwt")
@@ -43,6 +47,6 @@ def authenticated(handler):
 		if not subject.startswith("did:"):
 			raise web.HTTPUnauthorized(text="invalid jwt: invalid subject")
 		request["authed_did"] = subject
-		return handler(request, *args, **kwargs)
+		return await handler(request, *args, **kwargs)
 
 	return authentication_handler

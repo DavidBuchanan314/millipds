@@ -20,7 +20,7 @@ async def sync_get_blob(request: web.Request):
 			(request.query["did"], bytes(cbrrr.CID.decode(request.query["cid"]))) # TODO: check params exist first, give nicer error
 		).fetchone()
 		if blob_id is None:
-			return web.HTTPNotFound(text="blob not found")
+			raise web.HTTPNotFound(text="blob not found")
 		res = web.StreamResponse(headers={"Content-Disposition": f'attachment; filename="{request.query["cid"]}.bin"'})
 		res.content_type = "application/octet-stream"
 		await res.prepare(request)
@@ -38,15 +38,15 @@ async def sync_get_blob(request: web.Request):
 async def sync_get_blocks(request: web.Request):
 	did = request.query.get("did")
 	if did is None:
-		return web.HTTPBadRequest(text="no did specified")
+		raise web.HTTPBadRequest(text="no did specified")
 	try:
 		cids = [bytes(cbrrr.CID.decode(cid)) for cid in request.query.getall("cids")]
 	except ValueError:
-		return web.HTTPBadRequest(text="invalid cid")
+		raise web.HTTPBadRequest(text="invalid cid")
 	db = get_db(request)
 	row = db.con.execute("SELECT id FROM user WHERE did=?", (did,)).fetchone()
 	if row is None:
-		return web.HTTPNotFound(text="did not found")
+		raise web.HTTPNotFound(text="did not found")
 	user_id = row[0]
 	res = web.StreamResponse()
 	res.content_type = "application/vnd.ipld.car"
@@ -71,13 +71,13 @@ async def sync_get_blocks(request: web.Request):
 async def sync_get_latest_commit(request: web.Request):
 	did = request.query.get("did")
 	if did is None:
-		return web.HTTPBadRequest(text="no did specified")
+		raise web.HTTPBadRequest(text="no did specified")
 	row = get_db(request).con.execute(
 		"SELECT rev, head FROM user WHERE did=?",
 		(did,)
 	).fetchone()
 	if row is None:
-		return web.HTTPNotFound(text="did not found")
+		raise web.HTTPNotFound(text="did not found")
 	rev, head = row
 	return web.json_response({
 		"cid": cbrrr.CID(head).encode(),
@@ -88,11 +88,11 @@ async def sync_get_latest_commit(request: web.Request):
 @routes.get("/xrpc/com.atproto.sync.getRecord")
 async def sync_get_record(request: web.Request):
 	if "did" not in request.query:
-		return web.HTTPBadRequest(text="missing did")
+		raise web.HTTPBadRequest(text="missing did")
 	if "collection" not in request.query:
-		return web.HTTPBadRequest(text="missing collection")
+		raise web.HTTPBadRequest(text="missing collection")
 	if "rkey" not in request.query:
-		return web.HTTPBadRequest(text="missing rkey")
+		raise web.HTTPBadRequest(text="missing rkey")
 
 	# we don't stream the response because it should be compact-ish
 	car = repo_ops.get_record(
@@ -102,7 +102,7 @@ async def sync_get_record(request: web.Request):
 	)
 
 	if car is None:
-		return web.HTTPNotFound(text="did or record not found")
+		raise web.HTTPNotFound(text="did or record not found")
 	
 	return web.Response(
 		body=car,
@@ -114,13 +114,13 @@ async def sync_get_record(request: web.Request):
 async def sync_get_repo_status(request: web.Request):
 	did = request.query.get("did")
 	if did is None:
-		return web.HTTPBadRequest(text="no did specified")
+		raise web.HTTPBadRequest(text="no did specified")
 	row = get_db(request).con.execute(
 		"SELECT rev FROM user WHERE did=?",
 		(did,)
 	).fetchone()
 	if row is None:
-		return web.HTTPNotFound(text="did not found")
+		raise web.HTTPNotFound(text="did not found")
 	return web.json_response({
 		"did": did,
 		"active": True,
@@ -132,7 +132,7 @@ async def sync_get_repo_status(request: web.Request):
 async def sync_get_repo(request: web.Request):
 	did = request.query.get("did")
 	if did is None:
-		return web.HTTPBadRequest(text="no did specified")
+		raise web.HTTPBadRequest(text="no did specified")
 	since = request.query.get("since", "") # empty string is "lowest" possible value wrt string comparison
 
 	# TODO: do bad things happen if a client holds the connection open for a long time?
@@ -143,7 +143,7 @@ async def sync_get_repo(request: web.Request):
 				(did,)
 			).fetchone()
 		except TypeError: # from trying to unpack None
-			return web.HTTPNotFound(text="repo not found")
+			raise web.HTTPNotFound(text="repo not found")
 
 		res = web.StreamResponse()
 		res.content_type = "application/vnd.ipld.car"
@@ -170,11 +170,11 @@ async def sync_get_repo(request: web.Request):
 async def sync_list_blobs(request: web.Request):
 	did = request.query.get("did")
 	if did is None:
-		return web.HTTPBadRequest(text="no did specified")
+		raise web.HTTPBadRequest(text="no did specified")
 	since = request.query.get("since", "") # empty string is "lowest" possible value wrt string comparison
 	limit = int(request.query.get("limit", 500))
 	if limit < 1 or limit > 1000:
-		return web.HTTPBadRequest(text="limit out of range")
+		raise web.HTTPBadRequest(text="limit out of range")
 	cursor = int(request.query.get("cursor", 0))
 
 	cids = []

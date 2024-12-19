@@ -114,18 +114,18 @@ def dpop_protected(handler):
 		# TODO: verify iat?, iss?
 
 		if request.method != decoded["htm"]:
-			return web.HTTPBadRequest(
+			raise web.HTTPBadRequest(
 				text="dpop: bad htm"
 			)
 
 		if str(request.url) != decoded["htu"]:
 			logger.info(f"{request.url!r} != {decoded['htu']!r}")
-			return web.HTTPBadRequest(
+			raise web.HTTPBadRequest(
 				text="dpop: bad htu (if your application is reverse-proxied, make sure the Host header is getting set properly)"
 			)
 		
 		if decoded.get("nonce") != DPOP_NONCE:
-			return web.HTTPBadRequest(
+			raise web.HTTPBadRequest(
 				body=json.dumps({
 					"error": "use_dpop_nonce",
 					"error_description": "Authorization server requires nonce in DPoP proof"

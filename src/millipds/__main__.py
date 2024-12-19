@@ -67,6 +67,7 @@ import urllib.parse
 from getpass import getpass
 
 from docopt import docopt
+import aiohttp
 
 import cbrrr
 
@@ -215,14 +216,16 @@ def main():
 		else:
 			print("invalid account subcommand")
 	elif args["run"]:
-		asyncio.run(
-			service.run(
-				db=db,
-				sock_path=args["--sock_path"],
-				host=args["--listen_host"],
-				port=int(args["--listen_port"]),
-			)
-		)
+		async def run_with_client():
+			async with aiohttp.ClientSession() as client:
+				await service.run(
+					db=db,
+					client=client,
+					sock_path=args["--sock_path"],
+					host=args["--listen_host"],
+					port=int(args["--listen_port"]),
+				)
+		asyncio.run(run_with_client())
 	else:
 		print("CLI arg parse error?!")
 
