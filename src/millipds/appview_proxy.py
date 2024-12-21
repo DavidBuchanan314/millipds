@@ -1,3 +1,4 @@
+from typing import Optional
 import logging
 import time
 
@@ -12,12 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 # TODO: this should be done via actual DID resolution, not hardcoded!
-SERVICE_ROUTES = {
-	"did:web:api.bsky.chat#bsky_chat": "https://api.bsky.chat"
-}
+SERVICE_ROUTES = {"did:web:api.bsky.chat#bsky_chat": "https://api.bsky.chat"}
+
 
 @authenticated
-async def service_proxy(request: web.Request, service: Optional[str]=None):
+async def service_proxy(request: web.Request, service: Optional[str] = None):
 	"""
 	If `service` is None, default to bsky appview (per details in db config)
 	"""
@@ -59,7 +59,9 @@ async def service_proxy(request: web.Request, service: Optional[str]=None):
 	elif request.method == "POST":
 		request_body = await request.read()  # TODO: streaming?
 		async with get_client(request).post(
-			service_route + request.path, data=request_body, headers=(authn|{"Content-Type": request.content_type})
+			service_route + request.path,
+			data=request_body,
+			headers=(authn | {"Content-Type": request.content_type}),
 		) as r:
 			body_bytes = await r.read()  # TODO: streaming?
 			return web.Response(
