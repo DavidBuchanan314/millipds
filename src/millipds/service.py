@@ -182,13 +182,16 @@ async def actor_get_preferences(request: web.Request):
 
 @routes.get("/xrpc/com.atproto.identity.resolveHandle")
 async def identity_resolve_handle(request: web.Request):
-	# TODO: forward to appview(?) if we can't answer?
 	handle = request.query.get("handle")
 	if handle is None:
 		raise web.HTTPBadRequest(text="missing or invalid handle")
+
 	did = get_db(request).did_by_handle(handle)
 	if not did:
-		raise web.HTTPNotFound(text="no user by that handle exists on this PDS")
+		# forward to appview (TODO: resolve it ourself?)
+		return await service_proxy(request)
+
+	# TODO: set cache control response headers?
 	return web.json_response({"did": did})
 
 
