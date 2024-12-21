@@ -204,12 +204,13 @@ def apply_writes(
 		created, deleted = mst_diff(ns, prev_commit_root, next_commit_root)
 
 		# step 2: persist record changes
-		# (and also build ops list for firehose)
+		# (and also build ops list and gather proofs for firehose)
 		# nb: this ops list may be more "efficient" than that of the input writes list
 		# if e.g. a record was created and then immediately deleted, or modified multiple times.
 		new_record_cids = []
 		firehose_ops = []
 		firehose_blobs = set()
+		deletion_proof_cids = set()
 		for delta in record_diff(ns, created, deleted):
 			if delta.prior_value:
 				# needed for blob decref
@@ -256,6 +257,13 @@ def apply_writes(
 					+ util.split_path(delta.path),
 				)
 			elif delta.delta_type == DeltaType.DELETED:
+				# for creates and updates, the proof cids are already in `created`
+				# - but deletion proofs are less obvious
+				deletion_proof_cids.update(
+					proof.build_exclusion_proof(
+						ns, next_commit_root, delta.path
+					)
+				)
 				firehose_ops.append(
 					{"cid": None, "path": delta.path, "action": "delete"}
 				)
@@ -304,9 +312,7 @@ def apply_writes(
 		car = io.BytesIO()
 		cw = util.CarWriter(car, commit_cid)
 		cw.write_block(commit_cid, commit_bytes)
-		for mst_cid in (
-			created | {next_commit_root}
-		):  # unconditionally include the new root, to enable context-free deletion proofs if the top of the tree has been "cut off" without modifying the rest of the tree. see https://github.com/bluesky-social/atproto/pull/3033#issuecomment-2516402420
+		for mst_cid in created | deletion_proof_cids:
 			cw.write_block(mst_cid, bs.get_block(bytes(mst_cid)))
 		for record_cid in new_record_cids:
 			cw.write_block(record_cid, record_cbors[record_cid])
