@@ -140,15 +140,44 @@ async def health(request: web.Request):
 
 # we should not be implementing bsky-specific logic here!
 # (ideally, a PDS should not be aware of app-specific logic)
-@routes.get("/xrpc/app.bsky.actor.getPreferences")
-async def actor_get_preferences(request: web.Request):
-	return web.json_response({"preferences": []})  # dummy response
-
-
 @routes.post("/xrpc/app.bsky.actor.putPreferences")
+@authenticated
 async def actor_put_preferences(request: web.Request):
-	# TODO: actually implement this
+	# NOTE: we don't try to pull out the specific "preferences" field
+	prefs = await request.json()
+	pref_bytes = json.dumps(
+		prefs,
+		ensure_ascii=False,  # more compact
+		separators=(",", ":"),  # likewise
+		check_circular=False,  # impossible, checking would be a waste
+	).encode()
+	db = get_db(request)
+	db.con.execute(
+		"UPDATE user SET prefs=? WHERE did=?",
+		(pref_bytes, request["authed_did"]),
+	)
 	return web.Response()
+
+
+@routes.get("/xrpc/app.bsky.actor.getPreferences")
+@authenticated
+async def actor_get_preferences(request: web.Request):
+	db = get_db(request)
+	row = db.con.execute(
+		"SELECT prefs FROM user WHERE did=?", (request["authed_did"],)
+	).fetchone()
+
+	# should be impossible, otherwise we wouldn't be auth'd
+	assert row is not None
+
+	prefs = json.loads(row[0])
+
+	# TODO: in the future™ this will be unnecessary because we initialize it
+	# properly during account creation and/or I wrote a db migration script
+	if not prefs:
+		prefs = {"preferences": []}
+
+	return web.json_response(prefs)
 
 
 @routes.get("/xrpc/com.atproto.identity.resolveHandle")

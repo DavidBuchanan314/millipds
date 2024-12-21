@@ -71,7 +71,7 @@ async def service_proxy(request: web.Request, service: Optional[str] = None):
 			return web.Response(
 				body=body_bytes, content_type=r.content_type, status=r.status
 			)  # XXX: allowlist safe content types!
-	elif request.method == "PUT":
+	elif request.method == "PUT":  # are xrpc requests ever PUT?
 		raise NotImplementedError("TODO: PUT")
 	else:
 		raise NotImplementedError("TODO")

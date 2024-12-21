@@ -314,7 +314,7 @@ class Database:
 				(
 					did,
 					handle,
-					b"{}",
+					b'{"preferences":[]}',
 					pw_hash,
 					privkey_pem,
 					bytes(commit_cid),
