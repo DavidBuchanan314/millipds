@@ -224,7 +224,34 @@ async def authn(s, pds_host):
 	return {"Authorization": "Bearer " + token}
 
 
+@pytest.fixture
+async def populated_pds_host(s, pds_host, authn):
+	# same thing as test_repo_applyWrites, for now
+	for i in range(10):
+		async with s.post(
+			pds_host + "/xrpc/com.atproto.repo.applyWrites",
+			headers=authn,
+			json={
+				"repo": TEST_DID,
+				"writes": [
+					{
+						"$type": "com.atproto.repo.applyWrites#create",
+						"action": "create",
+						"collection": "app.bsky.feed.like",
+						"rkey": f"{i}-{j}",
+						"value": {"blah": "test record"},
+					}
+					for j in range(30)
+				],
+			},
+		) as r:
+			print(await r.json())
+			assert r.status == 200
+	return pds_host
+
+
 async def test_repo_applyWrites(s, pds_host, authn):
+	# TODO: test more than just "create"!
 	for i in range(10):
 		async with s.post(
 			pds_host + "/xrpc/com.atproto.repo.applyWrites",
@@ -259,6 +286,13 @@ async def test_repo_uploadBlob(s, pds_host, authn):
 			res = await r.json()
 			print(res)
 			assert r.status == 200
+
+	# getBlob should still 404 because refcount==0
+	async with s.get(
+		pds_host + "/xrpc/com.atproto.sync.getBlob",
+		params={"did": TEST_DID, "cid": res["blob"]["ref"]["$link"]},
+	) as r:
+		assert r.status == 404
 
 	# get the blob refcount >0
 	async with s.post(
@@ -296,11 +330,10 @@ async def test_sync_getRepo_not_found(s, pds_host):
 		assert r.status == 404
 
 
-@pytest.mark.depends(on=["test_repo_applyWrites"])
-async def test_sync_getRecord_nonexistent(s, pds_host):
+async def test_sync_getRecord_nonexistent(s, populated_pds_host):
 	# nonexistent DID should still 404
 	async with s.get(
-		pds_host + "/xrpc/com.atproto.sync.getRecord",
+		populated_pds_host + "/xrpc/com.atproto.sync.getRecord",
 		params={
 			"did": "did:web:nonexistent.invalid",
 			"collection": "app.bsky.feed.post",
@@ -311,7 +344,7 @@ async def test_sync_getRecord_nonexistent(s, pds_host):
 
 	# but extant DID with nonexistent record should 200, with exclusion proof CAR
 	async with s.get(
-		pds_host + "/xrpc/com.atproto.sync.getRecord",
+		populated_pds_host + "/xrpc/com.atproto.sync.getRecord",
 		params={
 			"did": TEST_DID,
 			"collection": "app.bsky.feed.post",
@@ -323,3 +356,20 @@ async def test_sync_getRecord_nonexistent(s, pds_host):
 		proof_car = await r.read()
 		assert proof_car  # nonempty
 		# TODO: make sure the proof is valid
+
+
+async def test_sync_getRecord_existent(s, populated_pds_host):
+	async with s.get(
+		populated_pds_host + "/xrpc/com.atproto.sync.getRecord",
+		params={
+			"did": TEST_DID,
+			"collection": "app.bsky.feed.like",
+			"rkey": "1-1",
+		},
+	) as r:
+		assert r.status == 200
+		assert r.content_type == "application/vnd.ipld.car"
+		proof_car = await r.read()
+		assert proof_car  # nonempty
+		# TODO: make sure the proof is valid, and contains the record
+		assert b"test record" in proof_car

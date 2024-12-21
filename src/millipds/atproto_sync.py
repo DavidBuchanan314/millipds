@@ -69,15 +69,17 @@ async def sync_get_blocks(request: web.Request):
 	await res.write(util.serialize_car_header())
 	for cid in cids:
 		# we don't use executemany so as not to hog the db
-		for value, *_ in db.con.execute(
+		row = db.con.execute(
 			"""
 				SELECT commit_bytes FROM user WHERE head=? AND id=?
 				UNION SELECT value FROM mst WHERE cid=? AND repo=?
 				UNION SELECT value FROM record WHERE cid=? AND repo=?
 			""",
 			(cid, user_id) * 3,
-		):
-			await res.write(util.serialize_car_entry(cid, value))
+		).fetchone()
+		if row is None:
+			continue  # hmm, we can't 404 because we already send the response headers
+		await res.write(util.serialize_car_entry(cid, row[0]))
 	await res.write_eof()
 	return res
 

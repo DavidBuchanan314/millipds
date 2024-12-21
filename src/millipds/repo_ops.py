@@ -378,15 +378,11 @@ def blob_incref(con: apsw.Connection, user_id: int, ref: cbrrr.CID, tid: str):
 	if changes == 1:
 		return  # happy path
 
-	if changes == 0:
-		raise ValueError(
-			"tried to incref a blob that doesn't exist"
-		)  # could happen if e.g. user didn't upload blob first
+	if changes == 0:  # could happen if e.g. user didn't upload blob first
+		raise ValueError("tried to incref a blob that doesn't exist")
 
-	# changes > 1
-	raise ValueError(
-		"welp, that's not supposed to happen"
-	)  # should be impossible given UNIQUE constraints
+	# changes > 1 (should be impossible given UNIQUE constraints)
+	raise ValueError("welp, that's not supposed to happen")
 
 
 def blob_decref(con: apsw.Connection, user_id: int, ref: cbrrr.CID):
