@@ -341,56 +341,11 @@ def construct_app(
 	app.add_routes(atproto_sync.routes)
 	app.add_routes(atproto_repo.routes)
 
-	# list of routes to proxy to the appview - hopefully not needed in the future (we'll derive the list from lexicons? and/or maybe service-proxying would be used?) https://github.com/bluesky-social/atproto/discussions/2350#discussioncomment-11193778
+	# fallback service proxying for bsky appview routes (hopefully not needed in the future, when atproto-proxy header is used)
 	app.add_routes(
 		[
-			# fmt off
-			# web.get ("/xrpc/app.bsky.actor.getPreferences", static_appview_proxy),
-			# web.post("/xrpc/app.bsky.actor.putPreferences", static_appview_proxy),
-			web.get("/xrpc/app.bsky.actor.getProfile", service_proxy),
-			web.get("/xrpc/app.bsky.actor.getProfiles", service_proxy),
-			web.get("/xrpc/app.bsky.actor.getSuggestions", service_proxy),
-			web.get(
-				"/xrpc/app.bsky.actor.searchActorsTypeahead", service_proxy
-			),
-			web.get("/xrpc/app.bsky.labeler.getServices", service_proxy),
-			web.get(
-				"/xrpc/app.bsky.notification.listNotifications", service_proxy
-			),
-			web.get(
-				"/xrpc/app.bsky.notification.getUnreadCount", service_proxy
-			),
-			web.post("/xrpc/app.bsky.notification.updateSeen", service_proxy),
-			web.get("/xrpc/app.bsky.graph.getList", service_proxy),
-			web.get("/xrpc/app.bsky.graph.getLists", service_proxy),
-			web.get("/xrpc/app.bsky.graph.getFollows", service_proxy),
-			web.get("/xrpc/app.bsky.graph.getFollowers", service_proxy),
-			web.get("/xrpc/app.bsky.graph.getStarterPack", service_proxy),
-			web.get(
-				"/xrpc/app.bsky.graph.getSuggestedFollowsByActor", service_proxy
-			),
-			web.get("/xrpc/app.bsky.graph.getActorStarterPacks", service_proxy),
-			web.post("/xrpc/app.bsky.graph.muteActor", service_proxy),
-			web.post("/xrpc/app.bsky.graph.unmuteActor", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getTimeline", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getAuthorFeed", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getActorFeeds", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getFeed", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getListFeed", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getFeedGenerator", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getFeedGenerators", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getPostThread", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getPosts", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getLikes", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getActorLikes", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getQuotes", service_proxy),
-			web.get("/xrpc/app.bsky.feed.getRepostedBy", service_proxy),
-			web.get(
-				"/xrpc/app.bsky.unspecced.getPopularFeedGenerators",
-				service_proxy,
-			),
-			# web.get("/xrpc/chat.bsky.convo.listConvos", static_appview_proxy)
-			# fmt on
+			web.get("/xrpc/app.bsky.{_:.*}", service_proxy),
+			web.post("/xrpc/app.bsky.{_:.*}", service_proxy),
 		]
 	)
 
