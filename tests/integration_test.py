@@ -178,12 +178,12 @@ async def test_valid_logins(s, pds_host, login_data):
 		assert "refreshJwt" in r
 
 	token = r["accessJwt"]
-	authn = {"Authorization": "Bearer " + token}
+	auth_headers = {"Authorization": "Bearer " + token}
 
 	# good auth
 	async with s.get(
 		pds_host + "/xrpc/com.atproto.server.getSession",
-		headers=authn,
+		headers=auth_headers,
 	) as r:
 		print(await r.json())
 		assert r.status == 200
@@ -214,7 +214,7 @@ async def test_sync_getRepo(s, pds_host):
 
 
 @pytest.fixture
-async def authn(s, pds_host):
+async def auth_headers(s, pds_host):
 	async with s.post(
 		pds_host + "/xrpc/com.atproto.server.createSession",
 		json=valid_logins[0],
@@ -225,12 +225,12 @@ async def authn(s, pds_host):
 
 
 @pytest.fixture
-async def populated_pds_host(s, pds_host, authn):
+async def populated_pds_host(s, pds_host, auth_headers):
 	# same thing as test_repo_applyWrites, for now
 	for i in range(10):
 		async with s.post(
 			pds_host + "/xrpc/com.atproto.repo.applyWrites",
-			headers=authn,
+			headers=auth_headers,
 			json={
 				"repo": TEST_DID,
 				"writes": [
@@ -250,12 +250,12 @@ async def populated_pds_host(s, pds_host, authn):
 	return pds_host
 
 
-async def test_repo_applyWrites(s, pds_host, authn):
+async def test_repo_applyWrites(s, pds_host, auth_headers):
 	# TODO: test more than just "create"!
 	for i in range(10):
 		async with s.post(
 			pds_host + "/xrpc/com.atproto.repo.applyWrites",
-			headers=authn,
+			headers=auth_headers,
 			json={
 				"repo": TEST_DID,
 				"writes": [
@@ -274,13 +274,13 @@ async def test_repo_applyWrites(s, pds_host, authn):
 			assert r.status == 200
 
 
-async def test_repo_uploadBlob(s, pds_host, authn):
+async def test_repo_uploadBlob(s, pds_host, auth_headers):
 	blob = os.urandom(0x100000)
 
 	for _ in range(2):  # test reupload is nop
 		async with s.post(
 			pds_host + "/xrpc/com.atproto.repo.uploadBlob",
-			headers=authn | {"content-type": "blah"},
+			headers=auth_headers | {"content-type": "blah"},
 			data=blob,
 		) as r:
 			res = await r.json()
@@ -297,7 +297,7 @@ async def test_repo_uploadBlob(s, pds_host, authn):
 	# get the blob refcount >0
 	async with s.post(
 		pds_host + "/xrpc/com.atproto.repo.createRecord",
-		headers=authn,
+		headers=auth_headers,
 		json={
 			"repo": TEST_DID,
 			"collection": "app.bsky.feed.post",

@@ -39,7 +39,7 @@ async def service_proxy(request: web.Request, service: Optional[str] = None):
 		service_route = db.config["bsky_appview_pfx"]
 
 	signing_key = db.signing_key_pem_by_did(request["authed_did"])
-	authn = {
+	auth_headers = {
 		"Authorization": "Bearer "
 		+ jwt.encode(
 			{
@@ -51,10 +51,10 @@ async def service_proxy(request: web.Request, service: Optional[str] = None):
 			signing_key,
 			algorithm=crypto.jwt_signature_alg_for_pem(signing_key),
 		)
-	}  # TODO: cache this!
+	}  # TODO: cache this?
 	if request.method == "GET":
 		async with get_client(request).get(
-			service_route + request.path, params=request.query, headers=authn
+			service_route + request.path, params=request.query, headers=auth_headers
 		) as r:
 			body_bytes = await r.read()  # TODO: streaming?
 			return web.Response(
@@ -65,7 +65,7 @@ async def service_proxy(request: web.Request, service: Optional[str] = None):
 		async with get_client(request).post(
 			service_route + request.path,
 			data=request_body,
-			headers=(authn | {"Content-Type": request.content_type}),
+			headers=(auth_headers | {"Content-Type": request.content_type}),
 		) as r:
 			body_bytes = await r.read()  # TODO: streaming?
 			return web.Response(
