@@ -54,7 +54,9 @@ async def service_proxy(request: web.Request, service: Optional[str] = None):
 	}  # TODO: cache this?
 	if request.method == "GET":
 		async with get_client(request).get(
-			service_route + request.path, params=request.query, headers=auth_headers
+			service_route + request.path,
+			params=request.query,
+			headers=auth_headers,
 		) as r:
 			body_bytes = await r.read()  # TODO: streaming?
 			return web.Response(

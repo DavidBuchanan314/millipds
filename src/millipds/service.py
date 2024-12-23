@@ -21,6 +21,7 @@ from . import database
 from . import auth_oauth
 from . import atproto_sync
 from . import atproto_repo
+from . import crypto
 from . import util
 from .appview_proxy import service_proxy
 from .auth_bearer import authenticated
@@ -262,6 +263,33 @@ async def server_create_session(request: web.Request):
 			"handle": handle,
 			"accessJwt": access_jwt,
 			"refreshJwt": refresh_jwt,
+		}
+	)
+
+
+@routes.get("/xrpc/com.atproto.server.getServiceAuth")
+@authenticated
+async def server_get_service_auth(request: web.Request):
+	aud = request.query.get("aud")
+	lxm = request.query.get("lxm")
+	# note, we ignore exp for now
+	if not (aud and lxm):
+		raise web.HTTPBadRequest(text="missing aud or lxm")
+	# TODO: validation of aud and lxm?
+	db = get_db(request)
+	signing_key = db.signing_key_pem_by_did(request["authed_did"])
+	return web.json_response(
+		{
+			"token": jwt.encode(
+				{
+					"iss": request["authed_did"],
+					"aud": aud,
+					"lxm": lxm,
+					"exp": int(time.time()) + 60,  # 60s
+				},
+				signing_key,
+				algorithm=crypto.jwt_signature_alg_for_pem(signing_key),
+			)
 		}
 	)
 
