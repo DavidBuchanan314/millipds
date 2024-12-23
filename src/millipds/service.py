@@ -272,10 +272,26 @@ async def server_create_session(request: web.Request):
 async def server_get_service_auth(request: web.Request):
 	aud = request.query.get("aud")
 	lxm = request.query.get("lxm")
-	# note, we ignore exp for now
+
+	# default to 60s into the future
+	now = int(time.time())
+	exp = int(request.query.get("exp", now + 60))
+
+	# lxm is not required by the lexicon but I'm requiring it anyway
 	if not (aud and lxm):
 		raise web.HTTPBadRequest(text="missing aud or lxm")
-	# TODO: validation of aud and lxm?
+	if lxm == "com.atproto.server.getServiceAuth":
+		raise web.HTTPBadRequest(text="can't generate auth tokens recursively!")
+
+	max_exp = now + 60 * 30  # 30 mins
+	if exp > max_exp:
+		logger.info(
+			f"requested exp too far into the future, truncating to {max_exp}"
+		)
+		exp = max_exp
+
+	# TODO: strict validation of aud and lxm?
+
 	db = get_db(request)
 	signing_key = db.signing_key_pem_by_did(request["authed_did"])
 	return web.json_response(
@@ -285,7 +301,7 @@ async def server_get_service_auth(request: web.Request):
 					"iss": request["authed_did"],
 					"aud": aud,
 					"lxm": lxm,
-					"exp": int(time.time()) + 60,  # 60s
+					"exp": exp,
 				},
 				signing_key,
 				algorithm=crypto.jwt_signature_alg_for_pem(signing_key),

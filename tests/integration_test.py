@@ -373,3 +373,24 @@ async def test_sync_getRecord_existent(s, populated_pds_host):
 		assert proof_car  # nonempty
 		# TODO: make sure the proof is valid, and contains the record
 		assert b"test record" in proof_car
+
+
+async def test_seviceauth(s, test_pds, auth_headers):
+	async with s.get(
+		test_pds.endpoint + "/xrpc/com.atproto.server.getServiceAuth",
+		headers=auth_headers,
+		params={
+			"aud": test_pds.db.config["pds_did"],
+			"lxm": "com.atproto.server.getSession",
+		},
+	) as r:
+		assert r.status == 200
+		token = (await r.json())["token"]
+
+	# test if the token works
+	async with s.get(
+		test_pds.endpoint + "/xrpc/com.atproto.server.getSession",
+		headers={"Authorization": "Bearer " + token},
+	) as r:
+		assert r.status == 200
+		await r.json()
