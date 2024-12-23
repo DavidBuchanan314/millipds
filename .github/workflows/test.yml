@@ -3,7 +3,7 @@ run-name: ${{ github.actor }} is running tests
 on:
   push:
     branches:
-      - '*'
+      - main
   pull_request:
     branches:
       - main
