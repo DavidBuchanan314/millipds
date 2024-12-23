@@ -51,6 +51,7 @@ class DIDResolver:
 		host = did.rpartition(":")[2]
 		# XXX: there's technically a risk of SSRF here, but it's mitigated by
 		# the fact that ports aren't supported, and that the path is fixed.
+		# XXX: wait no, it's not mitigated at all since we follow redirects!!!
 		return await self._get_json_with_limit(
 			f"https://{host}/.well-known/did.json"
 		)
