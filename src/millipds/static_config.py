@@ -24,3 +24,6 @@ FIREHOSE_QUEUE_SIZE = (
 	100  # might want to tweak this upwards on a very active PDS
 )
 # NB: each firehose event can be up to ~1MB, but on average they're much smaller
+
+DID_TTL = 60 * 60 * 24  # 1 day
+DID_ERROR_TTL = 60 * 5  # 5 mins

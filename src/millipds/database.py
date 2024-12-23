@@ -216,6 +216,19 @@ class Database:
 			"""
 		)
 
+		# we cache failures too, represented as a null doc (with shorter TTL)
+		# timestamps are unix timestamp ints, in seconds
+		self.con.execute(
+			"""
+			CREATE TABLE did_cache(
+				did TEXT PRIMARY KEY NOT NULL,
+				doc TEXT,
+				created_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL,
+			)
+			"""
+		)
+
 	def update_config(
 		self,
 		pds_pfx: Optional[str] = None,
