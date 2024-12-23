@@ -224,7 +224,7 @@ class Database:
 				did TEXT PRIMARY KEY NOT NULL,
 				doc TEXT,
 				created_at INTEGER NOT NULL,
-				expires_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL
 			)
 			"""
 		)
