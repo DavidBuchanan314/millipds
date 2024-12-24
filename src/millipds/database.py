@@ -63,15 +63,16 @@ class Database:
 		self.con = self.new_con()
 		self.pw_hasher = argon2.PasswordHasher()
 
-		try:
+		config_exists = self.con.execute(
+			"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='config'"
+		).fetchone()[0]
+
+		if config_exists:
 			if self.config["db_version"] != static_config.MILLIPDS_DB_VERSION:
 				raise Exception(
 					"unrecognised db version (TODO: db migrations?!)"
 				)
-
-		except apsw.SQLError as e:  # no such table, so lets create it
-			if "no such table" not in str(e):
-				raise
+		else:
 			with self.con:
 				self._init_tables()
 

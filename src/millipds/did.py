@@ -33,7 +33,7 @@ class DIDResolver:
 	def __init__(
 		self,
 		session: aiohttp.ClientSession,
-		plc_directory_host: str = "https://plc.directory",
+		plc_directory_host: str = static_config.PLC_DIRECTORY_HOST,
 	) -> None:
 		self.session: aiohttp.ClientSession = session
 		self.plc_directory_host: str = plc_directory_host
@@ -150,7 +150,7 @@ class DIDResolver:
 
 
 async def main() -> None:
-	import gc
+	# TODO: move these tests into a proper pytest file
 
 	async with aiohttp.ClientSession() as session:
 		TEST_DIDWEB = "did:web:retr0.id"  # TODO: don't rely on external infra
