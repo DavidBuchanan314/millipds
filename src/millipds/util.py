@@ -116,6 +116,10 @@ def compact_json(obj: Any) -> bytes:
 
 
 class PartitionedLock:
+	"""
+	Note: like asyncio.Lock itself, this class is not thread-safe.
+	"""
+
 	def __init__(self) -> None:
 		self._locks: WeakValueDictionary[Hashable, asyncio.Lock] = (
 			WeakValueDictionary()

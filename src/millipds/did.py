@@ -52,6 +52,14 @@ class DIDResolver:
 	async def resolve_with_db_cache(
 		self, db: Database, did: str
 	) -> Optional[DIDDoc]:
+		"""
+		If we fired off two concurrent queries for the same DID, the second would
+		be a waste of resources. By using a per-DID locking scheme, we ensure that
+		any subsequent queries wait for the first one to complete - by which time
+		the cache will be primed and the second query can return the cached result.
+
+		TODO: maybe consider an in-memory cache, too? Probably not worth it.
+		"""
 		async with self._concurrent_query_locks.get_lock(did):
 			# try the db first
 			now = int(time.time())
@@ -157,8 +165,14 @@ async def main() -> None:
 		b = resolver.resolve_with_db_cache(db, TEST_DIDWEB)
 		res_a, res_b = await asyncio.gather(a, b)
 		assert res_a == res_b
+
+		# if not for _concurrent_query_locks, we'd have 2 misses and 0 hits
+		# (because the second query would start before the first one finishes
+		# and primes the cache)
 		assert resolver.hits == 1
 		assert resolver.misses == 1
+
+		# check that the WeakValueDictionary is doing its thing (i.e. no memory leaks)
 		assert list(resolver._concurrent_query_locks._locks.keys()) == []
 
 
