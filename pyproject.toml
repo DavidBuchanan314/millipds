@@ -24,6 +24,7 @@ dependencies = [
 	"pyjwt[crypto]",
 	"cryptography",
 	"aiohttp",
+	"aiodns", # goes faster, apparently
 	"aiohttp-middlewares", # cors
 	"docopt",
 	"apsw",

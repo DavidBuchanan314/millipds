@@ -12,14 +12,6 @@ from .app_util import *
 logger = logging.getLogger(__name__)
 
 
-# TODO: this should be done via actual DID resolution, not hardcoded!
-SERVICE_ROUTES = {
-	"did:web:api.bsky.chat#bsky_chat": "https://api.bsky.chat",
-	"did:web:discover.bsky.app#bsky_fg": "https://discover.bsky.app",
-	"did:plc:ar7c4by46qjdydhdevvrndac#atproto_labeler": "https://mod.bsky.app",
-}
-
-
 @authenticated
 async def service_proxy(request: web.Request, service: Optional[str] = None):
 	"""
@@ -30,11 +22,22 @@ async def service_proxy(request: web.Request, service: Optional[str] = None):
 	logger.info(f"proxying lxm {lxm}")
 	db = get_db(request)
 	if service:
-		service_did = service.partition("#")[0]
-		service_route = SERVICE_ROUTES.get(service)
-		if service_route is None:
+		service_did, _, fragment = service.partition("#")
+		fragment = "#" + fragment
+		did_doc = await get_did_resolver(request).resolve_with_db_cache(
+			db, service_did
+		)
+		if did_doc is None:
+			return web.HTTPInternalServerError(
+				f"unable to resolve service {service!r}"
+			)
+		for service in did_doc.get("service", []):
+			if service.get("id") == fragment:
+				service_route = service["serviceEndpoint"]
+				break
+		else:
 			return web.HTTPBadRequest(f"unable to resolve service {service!r}")
-	else:
+	else:  # fall thru to assuming bsky appview
 		service_did = db.config["bsky_appview_did"]
 		service_route = db.config["bsky_appview_pfx"]
 

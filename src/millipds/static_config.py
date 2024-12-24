@@ -10,9 +10,9 @@ HTTP_LOG_FMT = (
 
 GROUPNAME = "millipds-sock"
 
-MILLIPDS_DB_VERSION = (
-	1  # this gets bumped if we make breaking changes to the db schema
-)
+# this gets bumped if we make breaking changes to the db schema
+MILLIPDS_DB_VERSION = 2
+
 ATPROTO_REPO_VERSION_3 = 3  # might get bumped if the atproto spec changes
 CAR_VERSION_1 = 1
 
@@ -20,7 +20,12 @@ DATA_DIR = "./data"
 MAIN_DB_PATH = DATA_DIR + "/millipds.sqlite3"
 REPOS_DIR = DATA_DIR + "/repos"
 
-FIREHOSE_QUEUE_SIZE = (
-	100  # might want to tweak this upwards on a very active PDS
-)
+# might want to tweak this upwards on a very active PDS
+FIREHOSE_QUEUE_SIZE = 100
+
 # NB: each firehose event can be up to ~1MB, but on average they're much smaller
+
+DID_CACHE_TTL = 60 * 60  # 1 hour
+DID_CACHE_ERROR_TTL = 60 * 5  # 5 mins
+
+PLC_DIRECTORY_HOST = "https://plc.directory"

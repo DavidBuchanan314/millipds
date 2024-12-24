@@ -58,19 +58,21 @@ class Database:
 	def __init__(self, path: str = static_config.MAIN_DB_PATH) -> None:
 		logger.info(f"opening database at {path}")
 		self.path = path
-		util.mkdirs_for_file(path)
+		if "/" in path:
+			util.mkdirs_for_file(path)
 		self.con = self.new_con()
 		self.pw_hasher = argon2.PasswordHasher()
 
-		try:
+		config_exists = self.con.execute(
+			"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='config'"
+		).fetchone()[0]
+
+		if config_exists:
 			if self.config["db_version"] != static_config.MILLIPDS_DB_VERSION:
 				raise Exception(
 					"unrecognised db version (TODO: db migrations?!)"
 				)
-
-		except apsw.SQLError as e:  # no such table, so lets create it
-			if "no such table" not in str(e):
-				raise
+		else:
 			with self.con:
 				self._init_tables()
 
@@ -212,6 +214,31 @@ class Database:
 				data BLOB NOT NULL,
 				PRIMARY KEY (blob, idx),
 				FOREIGN KEY (blob) REFERENCES blob(id)
+			)
+			"""
+		)
+
+		# we cache failures too, represented as a null doc (with shorter TTL)
+		# timestamps are unix timestamp ints, in seconds
+		self.con.execute(
+			"""
+			CREATE TABLE did_cache(
+				did TEXT PRIMARY KEY NOT NULL,
+				doc TEXT,
+				created_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL
+			)
+			"""
+		)
+
+		# likewise, a null did represents a failed resolution
+		self.con.execute(
+			"""
+			CREATE TABLE handle_cache(
+				handle TEXT PRIMARY KEY NOT NULL,
+				did TEXT,
+				created_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL
 			)
 			"""
 		)
