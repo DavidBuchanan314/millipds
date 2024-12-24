@@ -20,10 +20,10 @@ DATA_DIR = "./data"
 MAIN_DB_PATH = DATA_DIR + "/millipds.sqlite3"
 REPOS_DIR = DATA_DIR + "/repos"
 
-FIREHOSE_QUEUE_SIZE = (
-	100  # might want to tweak this upwards on a very active PDS
-)
+# might want to tweak this upwards on a very active PDS
+FIREHOSE_QUEUE_SIZE = 100
+
 # NB: each firehose event can be up to ~1MB, but on average they're much smaller
 
-DID_TTL = 60 * 60 * 24  # 1 day
-DID_ERROR_TTL = 60 * 5  # 5 mins
+DID_CACHE_TTL = 60 * 60  # 1 hour
+DID_CACHE_ERROR_TTL = 60 * 5  # 5 mins

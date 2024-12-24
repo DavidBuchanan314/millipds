@@ -1,9 +1,9 @@
 import os
 import time
-import hashlib
+import json
 import datetime
 import itertools
-from typing import BinaryIO, Iterator, Tuple, Optional
+from typing import BinaryIO, Iterator, Tuple, Optional, Any
 
 import cbrrr
 from atmst.blockstore.car_file import encode_varint
@@ -106,3 +106,7 @@ class CarWriter:
 		self.stream.write(encode_varint(len(cid_bytes) + len(value)))
 		self.stream.write(cid_bytes)
 		self.stream.write(value)
+
+
+def compact_json(obj: Any) -> bytes:
+	return json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode()

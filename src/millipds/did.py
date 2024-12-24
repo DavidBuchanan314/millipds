@@ -1,13 +1,35 @@
 import aiohttp
 import asyncio
-from typing import Dict, Callable, Any, Awaitable
+from typing import Dict, Callable, Any, Awaitable, Optional
 import re
 import json
+import time
+import logging
+
+from .database import Database
+from . import util
+from . import static_config
+
+logger = logging.getLogger(__name__)
 
 DIDDoc = Dict[str, Any]
 
+"""
+Security considerations for DID resolution:
+
+- SSRF - not handled here!!! - caller must pass in an "SSRF safe" ClientSession
+- Overly long DID strings (handled here via a hard limit (2KiB))
+- Overly long DID document responses (handled here via a hard limit (64KiB))
+- Servers that are slow to respond (handled via timeouts configured in the ClientSession)
+- Non-canonically-encoded DIDs (handled here via strict regex - for now we don't support percent-encoding at all)
+
+"""
+
 
 class DIDResolver:
+	DID_LENGTH_LIMIT = 2048
+	DIDDOC_LENGTH_LIMIT = 0x10000
+
 	def __init__(
 		self,
 		session: aiohttp.ClientSession,
@@ -20,8 +42,53 @@ class DIDResolver:
 			"plc": self.resolve_did_plc,
 		}
 
+		# keep stats for logging
+		self.hits = 0
+		self.misses = 0
+
+	async def resolve_with_db_cache(
+		self, db: Database, did: str
+	) -> Optional[DIDDoc]:
+		# try the db first
+		now = int(time.time())
+		row = db.con.execute(
+			"SELECT doc FROM did_cache WHERE did=? AND expires_at<?", (did, now)
+		).fetchone()
+
+		# cache hit
+		if row is not None:
+			self.hits += 1
+			doc = row[0]
+			return None if doc is None else json.loads(row[0])
+
+		# cache miss
+		self.misses += 1
+		logger.info(
+			f"DID cache miss for {did}. Total hits: {self.hits}, Total misses: {self.misses}"
+		)
+		try:
+			doc = await self.resolve_uncached(did)
+			expires_at = now + static_config.DID_CACHE_TTL
+		except Exception as e:
+			logger.exception(f"Error resolving DID {did}: {e}")
+			doc = None
+			expires_at = now + static_config.DID_CACHE_ERROR_TTL
+
+		# update the cache (note: we cache failures too, but with a shorter TTL)
+		db.con.execute(
+			"INSERT OR REPLACE INTO did_cache (did, doc, created_at, expires_at) VALUES (?, ?, ?, ?)",
+			(
+				did,
+				None if doc is None else util.compact_json(doc),
+				now,
+				expires_at,
+			),
+		)
+
+		return doc
+
 	async def resolve_uncached(self, did: str) -> DIDDoc:
-		if len(did) > 2048:
+		if len(did) > self.DID_LENGTH_LIMIT:
 			raise ValueError("DID too long for atproto")
 		scheme, method, *_ = did.split(":")
 		if scheme != "did":
@@ -32,9 +99,7 @@ class DIDResolver:
 		return await resolver(did)
 
 	# 64k ought to be enough for anyone!
-	async def _get_json_with_limit(
-		self, url: str, limit: int = 0x10000
-	) -> DIDDoc:
+	async def _get_json_with_limit(self, url: str, limit: int) -> DIDDoc:
 		async with self.session.get(url) as r:
 			r.raise_for_status()
 			try:
@@ -49,18 +114,17 @@ class DIDResolver:
 		if not re.match(r"^did:web:[a-z0-9\.\-]+$", did):
 			raise ValueError("Invalid did:web")
 		host = did.rpartition(":")[2]
-		# XXX: there's technically a risk of SSRF here, but it's mitigated by
-		# the fact that ports aren't supported, and that the path is fixed.
-		# XXX: wait no, it's not mitigated at all since we follow redirects!!!
+
 		return await self._get_json_with_limit(
-			f"https://{host}/.well-known/did.json"
+			f"https://{host}/.well-known/did.json", self.DIDDOC_LENGTH_LIMIT
 		)
 
 	async def resolve_did_plc(self, did: str) -> DIDDoc:
 		if not re.match(r"^did:plc:[a-z2-7]+$", did):  # base32-sortable
 			raise ValueError("Invalid did:plc")
+
 		return await self._get_json_with_limit(
-			f"{self.plc_directory_host}/{did}"
+			f"{self.plc_directory_host}/{did}", self.DIDDOC_LENGTH_LIMIT
 		)
 
 
