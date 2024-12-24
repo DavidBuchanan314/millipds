@@ -116,12 +116,12 @@ def compact_json(obj: Any) -> bytes:
 
 
 class PartitionedLock:
-	def __init__(self):
+	def __init__(self) -> None:
 		self._locks: WeakValueDictionary[Hashable, asyncio.Lock] = (
 			WeakValueDictionary()
 		)
 
-	def get_lock(self, key: Hashable):
+	def get_lock(self, key: Hashable) -> asyncio.Lock:
 		lock = self._locks.get(key)
 		if lock is None:
 			lock = asyncio.Lock()
