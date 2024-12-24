@@ -67,7 +67,8 @@ import urllib.parse
 from getpass import getpass
 
 from docopt import docopt
-import aiohttp
+from .ssrf import get_ssrf_safe_client
+
 
 import cbrrr
 
@@ -234,7 +235,8 @@ def main():
 	elif args["run"]:
 
 		async def run_service_with_client():
-			async with aiohttp.ClientSession() as client:
+			# TODO: option to use regular unsafe client for local dev testing
+			async with get_ssrf_safe_client() as client:
 				await service.run(
 					db=db,
 					client=client,
