@@ -26,6 +26,7 @@ from . import util
 from .appview_proxy import service_proxy
 from .auth_bearer import authenticated
 from .app_util import *
+from .did import DIDResolver
 
 logger = logging.getLogger(__name__)
 
@@ -402,11 +403,14 @@ def construct_app(
 		{"User-Agent": importlib.metadata.version("millipds")}
 	)
 
+	did_resolver = DIDResolver(client, static_config.PLC_DIRECTORY_HOST)
+
 	app = web.Application(middlewares=[cors, atproto_service_proxy_middleware])
 	app[MILLIPDS_DB] = db
 	app[MILLIPDS_AIOHTTP_CLIENT] = client
 	app[MILLIPDS_FIREHOSE_QUEUES] = set()
 	app[MILLIPDS_FIREHOSE_QUEUES_LOCK] = asyncio.Lock()
+	app[MILLIPDS_DID_RESOLVER] = did_resolver
 
 	app.add_routes(routes)
 	app.add_routes(auth_oauth.routes)

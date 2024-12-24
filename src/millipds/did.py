@@ -55,7 +55,7 @@ class DIDResolver:
 		# try the db first
 		now = int(time.time())
 		row = db.con.execute(
-			"SELECT doc FROM did_cache WHERE did=? AND expires_at<?", (did, now)
+			"SELECT doc FROM did_cache WHERE did=? AND ?<expires_at", (did, now)
 		).fetchone()
 
 		# cache hit
@@ -71,8 +71,9 @@ class DIDResolver:
 		)
 		try:
 			doc = await self.resolve_uncached(did)
+			logger.info(f"Successfully resolved {did}")
 		except Exception as e:
-			logger.exception(f"Error resolving DID {did}: {e}")
+			logger.exception(f"Error resolving {did}: {e}")
 			doc = None
 
 		# update "now" because resolution might've taken a while
