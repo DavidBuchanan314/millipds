@@ -42,6 +42,8 @@ class DIDResolver:
 			"plc": self.resolve_did_plc,
 		}
 
+		self._concurrent_query_locks = util.PartitionedLock()
+
 		# keep stats for logging
 		self.hits = 0
 		self.misses = 0
@@ -50,53 +52,53 @@ class DIDResolver:
 	async def resolve_with_db_cache(
 		self, db: Database, did: str
 	) -> Optional[DIDDoc]:
-		# TODO: prevent concurrent queries for the same DID - use locks?
+		async with self._concurrent_query_locks.get_lock(did):
+			# try the db first
+			now = int(time.time())
+			row = db.con.execute(
+				"SELECT doc FROM did_cache WHERE did=? AND ?<expires_at",
+				(did, now),
+			).fetchone()
 
-		# try the db first
-		now = int(time.time())
-		row = db.con.execute(
-			"SELECT doc FROM did_cache WHERE did=? AND ?<expires_at", (did, now)
-		).fetchone()
+			# cache hit
+			if row is not None:
+				self.hits += 1
+				doc = row[0]
+				return None if doc is None else json.loads(doc)
 
-		# cache hit
-		if row is not None:
-			self.hits += 1
-			doc = row[0]
-			return None if doc is None else json.loads(doc)
+			# cache miss
+			self.misses += 1
+			logger.info(
+				f"DID cache miss for {did}. Total hits: {self.hits}, Total misses: {self.misses}"
+			)
+			try:
+				doc = await self.resolve_uncached(did)
+				logger.info(f"Successfully resolved {did}")
+			except Exception as e:
+				logger.exception(f"Error resolving {did}: {e}")
+				doc = None
 
-		# cache miss
-		self.misses += 1
-		logger.info(
-			f"DID cache miss for {did}. Total hits: {self.hits}, Total misses: {self.misses}"
-		)
-		try:
-			doc = await self.resolve_uncached(did)
-			logger.info(f"Successfully resolved {did}")
-		except Exception as e:
-			logger.exception(f"Error resolving {did}: {e}")
-			doc = None
+			# update "now" because resolution might've taken a while
+			now = int(time.time())
+			expires_at = now + (
+				static_config.DID_CACHE_ERROR_TTL
+				if doc is None
+				else static_config.DID_CACHE_TTL
+			)
 
-		# update "now" because resolution might've taken a while
-		now = int(time.time())
-		expires_at = now + (
-			static_config.DID_CACHE_ERROR_TTL
-			if doc is None
-			else static_config.DID_CACHE_TTL
-		)
+			# update the cache (note: we cache failures too, but with a shorter TTL)
+			# TODO: if current doc is None, only replace if the existing entry is also None
+			db.con.execute(
+				"INSERT OR REPLACE INTO did_cache (did, doc, created_at, expires_at) VALUES (?, ?, ?, ?)",
+				(
+					did,
+					None if doc is None else util.compact_json(doc),
+					now,
+					expires_at,
+				),
+			)
 
-		# update the cache (note: we cache failures too, but with a shorter TTL)
-		# TODO: if current doc is None, only replace if the existing entry is also None
-		db.con.execute(
-			"INSERT OR REPLACE INTO did_cache (did, doc, created_at, expires_at) VALUES (?, ?, ?, ?)",
-			(
-				did,
-				None if doc is None else util.compact_json(doc),
-				now,
-				expires_at,
-			),
-		)
-
-		return doc
+			return doc
 
 	async def resolve_uncached(self, did: str) -> DIDDoc:
 		if len(did) > self.DID_LENGTH_LIMIT:
@@ -140,12 +142,24 @@ class DIDResolver:
 
 
 async def main() -> None:
+	import gc
+
 	async with aiohttp.ClientSession() as session:
+		TEST_DIDWEB = "did:web:retr0.id"  # TODO: don't rely on external infra
 		resolver = DIDResolver(session)
-		print(await resolver.resolve_uncached("did:web:retr0.id"))
+		print(await resolver.resolve_uncached(TEST_DIDWEB))
 		print(
 			await resolver.resolve_uncached("did:plc:vwzwgnygau7ed7b7wt5ux7y2")
 		)
+
+		db = Database(":memory:")
+		a = resolver.resolve_with_db_cache(db, TEST_DIDWEB)
+		b = resolver.resolve_with_db_cache(db, TEST_DIDWEB)
+		res_a, res_b = await asyncio.gather(a, b)
+		assert res_a == res_b
+		assert resolver.hits == 1
+		assert resolver.misses == 1
+		assert list(resolver._concurrent_query_locks._locks.keys()) == []
 
 
 if __name__ == "__main__":

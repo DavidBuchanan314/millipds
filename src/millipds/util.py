@@ -3,7 +3,10 @@ import time
 import json
 import datetime
 import itertools
-from typing import BinaryIO, Iterator, Tuple, Optional, Any
+import asyncio
+from typing import BinaryIO, Iterator, Tuple, Optional, Any, Dict, Hashable
+from weakref import WeakValueDictionary
+
 
 import cbrrr
 from atmst.blockstore.car_file import encode_varint
@@ -110,3 +113,17 @@ class CarWriter:
 
 def compact_json(obj: Any) -> bytes:
 	return json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+class PartitionedLock:
+	def __init__(self):
+		self._locks: WeakValueDictionary[Hashable, asyncio.Lock] = (
+			WeakValueDictionary()
+		)
+
+	def get_lock(self, key: Hashable):
+		lock = self._locks.get(key)
+		if lock is None:
+			lock = asyncio.Lock()
+			self._locks[key] = lock
+		return lock
