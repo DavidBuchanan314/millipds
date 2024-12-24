@@ -23,6 +23,17 @@ with apsw.Connection(static_config.MAIN_DB_PATH) as con:
 		"""
 	)
 
+	con.execute(
+		"""
+		CREATE TABLE handle_cache(
+			handle TEXT PRIMARY KEY NOT NULL,
+			did TEXT,
+			created_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL
+		)
+		"""
+	)
+
 	con.execute("UPDATE config SET db_version=2")
 
 print("v1 -> v2 Migration successful")

@@ -14,8 +14,10 @@ from aiohttp.resolver import DefaultResolver, AbstractResolver
 # (without this, bare IPs in the URL will bypass the resolver, where our SSRF check is)
 aiohttp.connector.is_ip_address = lambda _: False
 
+
 class SSRFException(ValueError):
 	pass
+
 
 class SSRFSafeResolverWrapper(AbstractResolver):
 	def __init__(self, resolver: AbstractResolver):
@@ -25,11 +27,14 @@ class SSRFSafeResolverWrapper(AbstractResolver):
 		result = await self.resolver.resolve(host, port, family)
 		for host in result:
 			if ipaddress.ip_address(host["host"]).is_private:
-				raise SSRFException("Can't connect to private IP: " + host["host"])
+				raise SSRFException(
+					"Can't connect to private IP: " + host["host"]
+				)
 		return result
-	
+
 	async def close(self) -> None:
 		await self.resolver.close()
+
 
 def get_ssrf_safe_client() -> ClientSession:
 	resolver = SSRFSafeResolverWrapper(DefaultResolver())

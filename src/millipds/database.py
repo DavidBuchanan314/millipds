@@ -230,6 +230,18 @@ class Database:
 			"""
 		)
 
+		# likewise, a null did represents a failed resolution
+		self.con.execute(
+			"""
+			CREATE TABLE handle_cache(
+				handle TEXT PRIMARY KEY NOT NULL,
+				did TEXT,
+				created_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL
+			)
+			"""
+		)
+
 	def update_config(
 		self,
 		pds_pfx: Optional[str] = None,
