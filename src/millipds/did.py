@@ -46,9 +46,12 @@ class DIDResolver:
 		self.hits = 0
 		self.misses = 0
 
+	# note: the uncached methods raise exceptions on failure, but this one returns None
 	async def resolve_with_db_cache(
 		self, db: Database, did: str
 	) -> Optional[DIDDoc]:
+		# TODO: prevent concurrent queries for the same DID - use locks?
+
 		# try the db first
 		now = int(time.time())
 		row = db.con.execute(
@@ -59,7 +62,7 @@ class DIDResolver:
 		if row is not None:
 			self.hits += 1
 			doc = row[0]
-			return None if doc is None else json.loads(row[0])
+			return None if doc is None else json.loads(doc)
 
 		# cache miss
 		self.misses += 1
@@ -68,13 +71,20 @@ class DIDResolver:
 		)
 		try:
 			doc = await self.resolve_uncached(did)
-			expires_at = now + static_config.DID_CACHE_TTL
 		except Exception as e:
 			logger.exception(f"Error resolving DID {did}: {e}")
 			doc = None
-			expires_at = now + static_config.DID_CACHE_ERROR_TTL
+
+		# update "now" because resolution might've taken a while
+		now = int(time.time())
+		expires_at = now + (
+			static_config.DID_CACHE_ERROR_TTL
+			if doc is None
+			else static_config.DID_CACHE_TTL
+		)
 
 		# update the cache (note: we cache failures too, but with a shorter TTL)
+		# TODO: if current doc is None, only replace if the existing entry is also None
 		db.con.execute(
 			"INSERT OR REPLACE INTO did_cache (did, doc, created_at, expires_at) VALUES (?, ?, ?, ?)",
 			(
