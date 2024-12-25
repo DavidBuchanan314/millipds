@@ -20,7 +20,9 @@ routes = web.RouteTableDef()
 async def firehose_broadcast(request: web.Request, msg: Tuple[int, bytes]):
 	# hm, everything in here is synchronous so we could drop the lock
 	async with get_firehose_queues_lock(request):
-		for queue in get_firehose_queues(request):
+		queues_to_remove = set()
+		active_queues = get_firehose_queues(request)
+		for queue in active_queues:
 			try:
 				queue.put_nowait(msg)
 
@@ -30,7 +32,11 @@ async def firehose_broadcast(request: web.Request, msg: Tuple[int, bytes]):
 					queue.get_nowait()
 				queue.put_nowait(None)  # signal end-of-stream
 				# don't give this queue any more events:
-				get_firehose_queues(request).remove(queue)
+				queues_to_remove.add(queue)
+
+		# we do the removals outside the loop to avoid modifying the set while iterating
+		for queue in queues_to_remove:
+			active_queues.remove(queue)
 
 
 async def apply_writes_and_emit_firehose(
