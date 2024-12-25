@@ -35,8 +35,7 @@ async def firehose_broadcast(request: web.Request, msg: Tuple[int, bytes]):
 				queues_to_remove.add(queue)
 
 		# we do the removals outside the loop to avoid modifying the set while iterating
-		for queue in queues_to_remove:
-			active_queues.remove(queue)
+		active_queues -= queues_to_remove
 
 
 async def apply_writes_and_emit_firehose(
