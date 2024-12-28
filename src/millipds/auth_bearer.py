@@ -81,8 +81,9 @@ def authenticated(handler):
 					algorithms=[alg],
 					audience=db.config["pds_did"],
 					options={
-						"require": ["exp", "lxm"],  # consider iat?
+						"require": ["exp", "iat", "lxm"],
 						"verify_exp": True,
+						"verify_iat": True,
 						"strict_aud": True,  # may be unnecessary
 					},
 				)

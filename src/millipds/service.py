@@ -6,6 +6,7 @@ import time
 import os
 import io
 import json
+import uuid
 import hashlib
 
 import apsw
@@ -298,6 +299,8 @@ async def server_get_service_auth(request: web.Request):
 					"aud": aud,
 					"lxm": lxm,
 					"exp": exp,
+					"iat": now,
+					"jti": str(uuid.uuid4())
 				},
 				signing_key,
 				algorithm=crypto.jwt_signature_alg_for_pem(signing_key),
