@@ -237,6 +237,7 @@ async def server_create_session(request: web.Request):
 			"sub": did,
 			"iat": unix_seconds_now,
 			"exp": unix_seconds_now + 60 * 60 * 24,  # 24h
+			"jti": str(uuid.uuid4()),
 		},
 		db.config["jwt_access_secret"],
 		"HS256",
@@ -249,6 +250,7 @@ async def server_create_session(request: web.Request):
 			"sub": did,
 			"iat": unix_seconds_now,
 			"exp": unix_seconds_now + 60 * 60 * 24 * 90,  # 90 days!
+			"jti": str(uuid.uuid4()),
 		},
 		db.config["jwt_access_secret"],
 		"HS256",
