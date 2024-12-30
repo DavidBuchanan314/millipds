@@ -107,7 +107,7 @@ class Database:
 				bsky_appview_pfx TEXT,
 				bsky_appview_did TEXT,
 				jwt_access_secret TEXT NOT NULL
-			)
+			) STRICT
 			"""
 		)
 
@@ -125,7 +125,7 @@ class Database:
 		self.con.execute(
 			"""
 			CREATE TABLE user(
-				id INTEGER PRIMARY KEY NOT NULL,
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				did TEXT NOT NULL,
 				handle TEXT NOT NULL,
 				prefs BLOB NOT NULL,
@@ -134,7 +134,7 @@ class Database:
 				head BLOB NOT NULL,
 				rev TEXT NOT NULL,
 				commit_bytes BLOB NOT NULL
-			)
+			) STRICT
 			"""
 		)
 
@@ -147,7 +147,7 @@ class Database:
 				seq INTEGER PRIMARY KEY AUTOINCREMENT,
 				timestamp INTEGER NOT NULL,
 				msg BLOB NOT NULL
-			)
+			) STRICT
 			"""
 		)
 
@@ -161,7 +161,7 @@ class Database:
 				value BLOB NOT NULL,
 				FOREIGN KEY (repo) REFERENCES user(id),
 				PRIMARY KEY (repo, cid)
-			)
+			) STRICT, WITHOUT ROWID
 			"""
 		)
 		self.con.execute("CREATE INDEX mst_since ON mst(since)")
@@ -177,7 +177,7 @@ class Database:
 				value BLOB NOT NULL,
 				FOREIGN KEY (repo) REFERENCES user(id),
 				PRIMARY KEY (repo, nsid, rkey)
-			)
+			) STRICT, WITHOUT ROWID
 			"""
 		)
 		self.con.execute("CREATE INDEX record_since ON record(since)")
@@ -191,13 +191,13 @@ class Database:
 		self.con.execute(
 			"""
 			CREATE TABLE blob(
-				id INTEGER PRIMARY KEY NOT NULL,
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				repo INTEGER NOT NULL,
 				cid BLOB,
 				refcount INTEGER NOT NULL,
 				since TEXT,
 				FOREIGN KEY (repo) REFERENCES user(id)
-			)
+			) STRICT
 			"""
 		)
 		self.con.execute(
@@ -214,7 +214,7 @@ class Database:
 				data BLOB NOT NULL,
 				PRIMARY KEY (blob, idx),
 				FOREIGN KEY (blob) REFERENCES blob(id)
-			)
+			) STRICT, WITHOUT ROWID
 			"""
 		)
 
@@ -227,7 +227,7 @@ class Database:
 				doc TEXT,
 				created_at INTEGER NOT NULL,
 				expires_at INTEGER NOT NULL
-			)
+			) STRICT, WITHOUT ROWID
 			"""
 		)
 
@@ -239,7 +239,7 @@ class Database:
 				did TEXT,
 				created_at INTEGER NOT NULL,
 				expires_at INTEGER NOT NULL
-			)
+			) STRICT, WITHOUT ROWID
 			"""
 		)
 

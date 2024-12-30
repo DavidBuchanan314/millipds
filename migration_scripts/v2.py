@@ -19,7 +19,7 @@ with apsw.Connection(static_config.MAIN_DB_PATH) as con:
 			doc TEXT,
 			created_at INTEGER NOT NULL,
 			expires_at INTEGER NOT NULL
-		)
+		) STRICT, WITHOUT ROWID
 		"""
 	)
 
@@ -30,7 +30,7 @@ with apsw.Connection(static_config.MAIN_DB_PATH) as con:
 			did TEXT,
 			created_at INTEGER NOT NULL,
 			expires_at INTEGER NOT NULL
-		)
+		) STRICT, WITHOUT ROWID
 		"""
 	)
 
