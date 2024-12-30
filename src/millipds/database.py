@@ -164,6 +164,7 @@ class Database:
 			) STRICT, WITHOUT ROWID
 			"""
 		)
+		# should maybe be (repo, since) instead?
 		self.con.execute("CREATE INDEX mst_since ON mst(since)")
 
 		self.con.execute(
@@ -180,6 +181,7 @@ class Database:
 			) STRICT, WITHOUT ROWID
 			"""
 		)
+		# should maybe be (repo, since) instead? maybe also (repo, nsid, since)?
 		self.con.execute("CREATE INDEX record_since ON record(since)")
 
 		# nb: blobs are partitioned per-repo

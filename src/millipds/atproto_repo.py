@@ -225,6 +225,9 @@ async def repo_list_records(request: web.Request):
 	collection = request.query["collection"]
 	records = []
 	db = get_db(request)
+	# TODO: rather than ordering by rkey, we should maybe order based on how
+	# recently it was inserted/updated. I guess `since` would get us that, but
+	# is it an efficient query? we do have an index on `since` at least.
 	for rkey, cid, value in db.con.execute(
 		f"""
 			SELECT rkey, cid, value
