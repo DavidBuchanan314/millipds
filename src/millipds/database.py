@@ -226,7 +226,7 @@ class Database:
 			"""
 			CREATE TABLE did_cache(
 				did TEXT PRIMARY KEY NOT NULL,
-				doc TEXT,
+				doc BLOB,
 				created_at INTEGER NOT NULL,
 				expires_at INTEGER NOT NULL
 			) STRICT, WITHOUT ROWID
