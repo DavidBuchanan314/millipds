@@ -480,8 +480,16 @@ async def test_deleteSession(s, pds_host):
 		assert r.status == 200
 
 	# test that the session token is invalid now
+	# XXX: in the future we might relax this behaviour
 	async with s.get(
 		pds_host + "/xrpc/com.atproto.server.getSession",
 		headers={"Authorization": "Bearer " + session_token},
+	) as r:
+		assert r.status != 200
+
+	# test that the refresh token is invalid too
+	async with s.post(
+		pds_host + "/xrpc/com.atproto.server.refreshSession",
+		headers={"Authorization": "Bearer " + refresh_token},
 	) as r:
 		assert r.status != 200
