@@ -396,11 +396,12 @@ async def test_seviceauth(s, test_pds, auth_headers):
 		await r.json()
 
 
-async def test_refreshsession(s, pds_host):
+async def test_refreshSession(s, pds_host):
 	async with s.post(
 		pds_host + "/xrpc/com.atproto.server.createSession",
 		json=valid_logins[0],
 	) as r:
+		assert r.status == 200
 		r = await r.json()
 		orig_session_token = r["accessJwt"]
 		orig_refresh_token = r["refreshJwt"]
@@ -412,7 +413,7 @@ async def test_refreshsession(s, pds_host):
 	) as r:
 		assert r.status != 200
 
-		# correctly refresh using the refresh token
+	# correctly refresh using the refresh token
 	async with s.post(
 		pds_host + "/xrpc/com.atproto.server.refreshSession",
 		headers={"Authorization": "Bearer " + orig_refresh_token},
@@ -442,5 +443,45 @@ async def test_refreshsession(s, pds_host):
 	async with s.post(
 		pds_host + "/xrpc/com.atproto.server.refreshSession",
 		headers={"Authorization": "Bearer " + orig_refresh_token},
+	) as r:
+		assert r.status != 200
+
+
+async def test_deleteSession(s, pds_host):
+	async with s.post(
+		pds_host + "/xrpc/com.atproto.server.createSession",
+		json=valid_logins[0],
+	) as r:
+		assert r.status == 200
+		r = await r.json()
+		session_token = r["accessJwt"]
+		refresh_token = r["refreshJwt"]
+
+	# sanity-check that the session token currently works
+	async with s.get(
+		pds_host + "/xrpc/com.atproto.server.getSession",
+		headers={"Authorization": "Bearer " + session_token},
+	) as r:
+		assert r.status == 200
+		await r.json()
+
+	# can't delete using the session token
+	async with s.post(
+		pds_host + "/xrpc/com.atproto.server.deleteSession",
+		headers={"Authorization": "Bearer " + session_token},
+	) as r:
+		assert r.status != 200
+
+	# can delete using the refresh token
+	async with s.post(
+		pds_host + "/xrpc/com.atproto.server.deleteSession",
+		headers={"Authorization": "Bearer " + refresh_token},
+	) as r:
+		assert r.status == 200
+
+	# test that the session token is invalid now
+	async with s.get(
+		pds_host + "/xrpc/com.atproto.server.getSession",
+		headers={"Authorization": "Bearer " + session_token},
 	) as r:
 		assert r.status != 200

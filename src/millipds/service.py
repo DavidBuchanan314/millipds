@@ -303,6 +303,25 @@ async def server_refresh_session(request: web.Request):
 	)
 
 
+# NOTE: deleteSession requires refresh token as auth, not access token
+@routes.post("/xrpc/com.atproto.server.deleteSession")
+async def server_delete_session(request: web.Request):
+	auth = request.headers.get("Authorization", "")
+	if not auth.startswith("Bearer "):
+		raise web.HTTPUnauthorized(text="invalid auth type")
+	token = auth.removeprefix("Bearer ")
+	token_payload = verify_symmetric_token(
+		request, token, "com.atproto.refresh"
+	)
+
+	get_db(request).con.execute(
+		"INSERT INTO revoked_token (did, jti, expires_at) VALUES (?, ?, ?)",
+		(token_payload["sub"], token_payload["jti"], token_payload["exp"]),
+	)
+
+	return web.Response()
+
+
 @routes.get("/xrpc/com.atproto.server.getServiceAuth")
 @authenticated
 async def server_get_service_auth(request: web.Request):
