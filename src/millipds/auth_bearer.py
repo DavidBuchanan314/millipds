@@ -11,6 +11,44 @@ logger = logging.getLogger(__name__)
 routes = web.RouteTableDef()
 
 
+def verify_symmetric_token(
+	request: web.Request, token: str, expected_scope: str
+) -> dict:
+	db = get_db(request)
+	try:
+		payload: dict = jwt.decode(
+			jwt=token,
+			key=db.config["jwt_access_secret"],
+			algorithms=["HS256"],
+			audience=db.config["pds_did"],
+			options={
+				"require": ["exp", "iat", "scope", "jti", "sub"],
+				"verify_exp": True,
+				"verify_iat": True,
+				"strict_aud": True,  # may be unnecessary
+			},
+		)
+	except jwt.exceptions.PyJWTError:
+		raise web.HTTPUnauthorized(text="invalid jwt")
+
+	revoked = db.con.execute(
+		"SELECT COUNT(*) FROM revoked_token WHERE did=? AND jti=?",
+		(payload["sub"], payload["jti"]),
+	).fetchone()[0]
+
+	if revoked:
+		raise web.HTTPUnauthorized(text="revoked token")
+
+	# if we reached this far, the payload must've been signed by us
+	if payload.get("scope") != expected_scope:
+		raise web.HTTPUnauthorized(text="invalid jwt scope")
+
+	if not payload.get("sub", "").startswith("did:"):
+		raise web.HTTPUnauthorized(text="invalid jwt: invalid subject")
+
+	return payload
+
+
 def authenticated(handler):
 	"""
 	There are three types of auth:
@@ -39,30 +77,9 @@ def authenticated(handler):
 		)
 		# logger.info(unverified)
 		if unverified["header"]["alg"] == "HS256":  # symmetric secret
-			try:
-				payload: dict = jwt.decode(
-					jwt=token,
-					key=db.config["jwt_access_secret"],
-					algorithms=["HS256"],
-					audience=db.config["pds_did"],
-					options={
-						"require": ["exp", "iat", "scope"],  # consider iat?
-						"verify_exp": True,
-						"verify_iat": True,
-						"strict_aud": True,  # may be unnecessary
-					},
-				)
-			except jwt.exceptions.PyJWTError:
-				raise web.HTTPUnauthorized(text="invalid jwt")
-
-			# if we reached this far, the payload must've been signed by us
-			if payload.get("scope") != "com.atproto.access":
-				raise web.HTTPUnauthorized(text="invalid jwt scope")
-
-			subject: str = payload.get("sub", "")
-			if not subject.startswith("did:"):
-				raise web.HTTPUnauthorized(text="invalid jwt: invalid subject")
-			request["authed_did"] = subject
+			request["authed_did"] = verify_symmetric_token(
+				request, token, "com.atproto.access"
+			)["sub"]
 		else:  # asymmetric service auth (scoped to a specific lxm)
 			did: str = unverified["payload"]["iss"]
 			if not did.startswith("did:"):
@@ -81,7 +98,7 @@ def authenticated(handler):
 					algorithms=[alg],
 					audience=db.config["pds_did"],
 					options={
-						"require": ["exp", "iat", "lxm"],
+						"require": ["exp", "iat", "lxm", "jti", "iss"],
 						"verify_exp": True,
 						"verify_iat": True,
 						"strict_aud": True,  # may be unnecessary
@@ -89,6 +106,14 @@ def authenticated(handler):
 				)
 			except jwt.exceptions.PyJWTError:
 				raise web.HTTPUnauthorized(text="invalid jwt")
+
+			revoked = db.con.execute(
+				"SELECT COUNT(*) FROM revoked_token WHERE did=? AND jti=?",
+				(payload["iss"], payload["jti"]),
+			).fetchone()[0]
+
+			if revoked:
+				raise web.HTTPUnauthorized(text="revoked token")
 
 			request_lxm = request.path.rpartition("/")[2].partition("?")[0]
 			if request_lxm != payload.get("lxm"):

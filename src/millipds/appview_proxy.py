@@ -29,14 +29,16 @@ async def service_proxy(request: web.Request, service: Optional[str] = None):
 		)
 		if did_doc is None:
 			return web.HTTPInternalServerError(
-				f"unable to resolve service {service!r}"
+				text=f"unable to resolve service {service!r}"
 			)
-		for service in did_doc.get("service", []):
-			if service.get("id") == fragment:
-				service_route = service["serviceEndpoint"]
+		for service_info in did_doc.get("service", []):
+			if service_info.get("id") == fragment:
+				service_route = service_info["serviceEndpoint"]
 				break
 		else:
-			return web.HTTPBadRequest(f"unable to resolve service {service!r}")
+			return web.HTTPBadRequest(
+				text=f"unable to resolve service {service!r}"
+			)
 	else:  # fall thru to assuming bsky appview
 		service_did = db.config["bsky_appview_did"]
 		service_route = db.config["bsky_appview_pfx"]

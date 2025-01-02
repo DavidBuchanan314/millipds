@@ -7,7 +7,8 @@ apsw.bestpractice.apply(apsw.bestpractice.recommended)
 
 from millipds import static_config
 
-with apsw.Connection(static_config.MAIN_DB_PATH) as con:
+
+def migrate(con):
 	version_now, *_ = con.execute("SELECT db_version FROM config").fetchone()
 
 	assert version_now == 1
@@ -36,4 +37,9 @@ with apsw.Connection(static_config.MAIN_DB_PATH) as con:
 
 	con.execute("UPDATE config SET db_version=2")
 
-print("v1 -> v2 Migration successful")
+
+if __name__ == "__main__":
+	with apsw.Connection(static_config.MAIN_DB_PATH) as con:
+		migrate(con)
+
+	print("v1 -> v2 Migration successful")
