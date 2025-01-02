@@ -230,14 +230,16 @@ async def server_create_session(request: web.Request):
 
 	# prepare access tokens
 	unix_seconds_now = int(time.time())
+	# use the same jti for both tokens, so revoking one revokes both
+	jti = str(uuid.uuid4())
 	access_jwt = jwt.encode(
 		{
 			"scope": "com.atproto.access",
 			"aud": db.config["pds_did"],
 			"sub": did,
 			"iat": unix_seconds_now,
-			"exp": unix_seconds_now + 60 * 60 * 24,  # 24h
-			"jti": str(uuid.uuid4()),
+			"exp": unix_seconds_now + static_config.ACCESS_EXP,
+			"jti": jti,
 		},
 		db.config["jwt_access_secret"],
 		"HS256",
@@ -249,8 +251,8 @@ async def server_create_session(request: web.Request):
 			"aud": db.config["pds_did"],
 			"sub": did,
 			"iat": unix_seconds_now,
-			"exp": unix_seconds_now + 60 * 60 * 24 * 90,  # 90 days!
-			"jti": str(uuid.uuid4()),
+			"exp": unix_seconds_now + static_config.REFRESH_EXP,
+			"jti": jti,
 		},
 		db.config["jwt_access_secret"],
 		"HS256",
