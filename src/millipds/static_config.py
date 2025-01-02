@@ -11,7 +11,7 @@ HTTP_LOG_FMT = (
 GROUPNAME = "millipds-sock"
 
 # this gets bumped if we make breaking changes to the db schema
-MILLIPDS_DB_VERSION = 2
+MILLIPDS_DB_VERSION = 3
 
 ATPROTO_REPO_VERSION_3 = 3  # might get bumped if the atproto spec changes
 CAR_VERSION_1 = 1
