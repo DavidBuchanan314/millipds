@@ -203,6 +203,16 @@ async def server_describe_server(request: web.Request):
 	)
 
 
+def session_info(request: web.Request) -> dict:
+	return {
+		"handle": get_db(request).handle_by_did(request["authed_did"]),
+		"did": request["authed_did"],
+		"email": "tfw_no@email.invalid",  # this and below are just here for testing lol
+		"emailConfirmed": True,
+		# "didDoc": {}, # iiuc this is only used for entryway usecase?
+	}
+
+
 # TODO: ratelimit this!!!
 @routes.post("/xrpc/com.atproto.server.createSession")
 async def server_create_session(request: web.Request):
@@ -258,10 +268,12 @@ async def server_create_session(request: web.Request):
 		"HS256",
 	)
 
+	# a bit of a hack, session_info() needs this
+	request["authed_did"] = did
+
 	return web.json_response(
+		session_info(request) |
 		{
-			"did": did,
-			"handle": handle,
 			"accessJwt": access_jwt,
 			"refreshJwt": refresh_jwt,
 		}
@@ -383,15 +395,7 @@ async def identity_update_handle(request: web.Request):
 @routes.get("/xrpc/com.atproto.server.getSession")
 @authenticated
 async def server_get_session(request: web.Request):
-	return web.json_response(
-		{
-			"handle": get_db(request).handle_by_did(request["authed_did"]),
-			"did": request["authed_did"],
-			"email": "tfw_no@email.invalid",  # this and below are just here for testing lol
-			"emailConfirmed": True,
-			# "didDoc": {}, # iiuc this is only used for entryway usecase?
-		}
-	)
+	return web.json_response(session_info(request))
 
 
 def construct_app(
