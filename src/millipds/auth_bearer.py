@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 routes = web.RouteTableDef()
 
 
-def verify_symmetric_token_and_get_subject(
+def verify_symmetric_token(
 	request: web.Request, token: str, expected_scope: str
-) -> str:
+) -> dict:
 	db = get_db(request)
 	try:
 		payload: dict = jwt.decode(
@@ -43,10 +43,10 @@ def verify_symmetric_token_and_get_subject(
 	if payload.get("scope") != expected_scope:
 		raise web.HTTPUnauthorized(text="invalid jwt scope")
 
-	subject: str = payload.get("sub", "")
-	if not subject.startswith("did:"):
+	if not payload.get("sub", "").startswith("did:"):
 		raise web.HTTPUnauthorized(text="invalid jwt: invalid subject")
-	return subject
+
+	return payload
 
 
 def authenticated(handler):
@@ -77,9 +77,9 @@ def authenticated(handler):
 		)
 		# logger.info(unverified)
 		if unverified["header"]["alg"] == "HS256":  # symmetric secret
-			request["authed_did"] = verify_symmetric_token_and_get_subject(
+			request["authed_did"] = verify_symmetric_token(
 				request, token, "com.atproto.access"
-			)
+			)["sub"]
 		else:  # asymmetric service auth (scoped to a specific lxm)
 			did: str = unverified["payload"]["iss"]
 			if not did.startswith("did:"):

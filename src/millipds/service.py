@@ -25,7 +25,7 @@ from . import atproto_repo
 from . import crypto
 from . import util
 from .appview_proxy import service_proxy
-from .auth_bearer import authenticated
+from .auth_bearer import authenticated, verify_symmetric_token
 from .app_util import *
 from .did import DIDResolver
 
@@ -213,6 +213,43 @@ def session_info(request: web.Request) -> dict:
 	}
 
 
+def generate_session_tokens(request: web.Request) -> dict:
+	db = get_db(request)
+	unix_seconds_now = int(time.time())
+	# use the same jti for both tokens, so revoking one revokes both
+	jti = str(uuid.uuid4())
+	access_jwt = jwt.encode(
+		{
+			"scope": "com.atproto.access",
+			"aud": db.config["pds_did"],
+			"sub": request["authed_did"],
+			"iat": unix_seconds_now,
+			"exp": unix_seconds_now + static_config.ACCESS_EXP,
+			"jti": jti,
+		},
+		db.config["jwt_access_secret"],
+		"HS256",
+	)
+
+	refresh_jwt = jwt.encode(
+		{
+			"scope": "com.atproto.refresh",
+			"aud": db.config["pds_did"],
+			"sub": request["authed_did"],
+			"iat": unix_seconds_now,
+			"exp": unix_seconds_now + static_config.REFRESH_EXP,
+			"jti": jti,
+		},
+		db.config["jwt_access_secret"],
+		"HS256",
+	)
+
+	return {
+		"accessJwt": access_jwt,
+		"refreshJwt": refresh_jwt,
+	}
+
+
 # TODO: ratelimit this!!!
 @routes.post("/xrpc/com.atproto.server.createSession")
 async def server_create_session(request: web.Request):
@@ -238,45 +275,32 @@ async def server_create_session(request: web.Request):
 	except ValueError:
 		raise web.HTTPUnauthorized(text="incorrect identifier or password")
 
-	# prepare access tokens
-	unix_seconds_now = int(time.time())
-	# use the same jti for both tokens, so revoking one revokes both
-	jti = str(uuid.uuid4())
-	access_jwt = jwt.encode(
-		{
-			"scope": "com.atproto.access",
-			"aud": db.config["pds_did"],
-			"sub": did,
-			"iat": unix_seconds_now,
-			"exp": unix_seconds_now + static_config.ACCESS_EXP,
-			"jti": jti,
-		},
-		db.config["jwt_access_secret"],
-		"HS256",
-	)
-
-	refresh_jwt = jwt.encode(
-		{
-			"scope": "com.atproto.refresh",
-			"aud": db.config["pds_did"],
-			"sub": did,
-			"iat": unix_seconds_now,
-			"exp": unix_seconds_now + static_config.REFRESH_EXP,
-			"jti": jti,
-		},
-		db.config["jwt_access_secret"],
-		"HS256",
-	)
-
-	# a bit of a hack, session_info() needs this
+	# both generate_session_tokens and session_info need this
 	request["authed_did"] = did
 
 	return web.json_response(
-		session_info(request) |
-		{
-			"accessJwt": access_jwt,
-			"refreshJwt": refresh_jwt,
-		}
+		session_info(request) | generate_session_tokens(request)
+	)
+
+
+@routes.post("/xrpc/com.atproto.server.refreshSession")
+async def server_refresh_session(request: web.Request):
+	auth = request.headers.get("Authorization", "")
+	if not auth.startswith("Bearer "):
+		raise web.HTTPUnauthorized(text="invalid auth type")
+	token = auth.removeprefix("Bearer ")
+	token_payload = verify_symmetric_token(
+		request, token, "com.atproto.refresh"
+	)
+	request["authed_did"] = token_payload["sub"]
+
+	db = get_db(request)
+	db.con.execute(
+		"INSERT INTO revoked_token (did, jti, expires_at) VALUES (?, ?, ?)",
+		(request["authed_did"], token_payload["jti"], token_payload["exp"]),
+	)
+	return web.json_response(
+		session_info(request) | generate_session_tokens(request)
 	)
 
 
