@@ -30,5 +30,5 @@ DID_CACHE_ERROR_TTL = 60 * 5  # 5 mins
 
 PLC_DIRECTORY_HOST = "https://plc.directory"
 
-ACCESS_EXP = 60 * 60 * 24  # 24 h
+ACCESS_EXP = 60 * 60 * 2  # 2 h
 REFRESH_EXP = 60 * 60 * 24 * 90  # 90 days
