@@ -46,7 +46,7 @@ def authenticated(handler):
 					algorithms=["HS256"],
 					audience=db.config["pds_did"],
 					options={
-						"require": ["exp", "iat", "scope"],  # consider iat?
+						"require": ["exp", "iat", "scope", "jti", "sub"],
 						"verify_exp": True,
 						"verify_iat": True,
 						"strict_aud": True,  # may be unnecessary
@@ -54,6 +54,14 @@ def authenticated(handler):
 				)
 			except jwt.exceptions.PyJWTError:
 				raise web.HTTPUnauthorized(text="invalid jwt")
+
+			revoked = db.con.execute(
+				"SELECT COUNT(*) FROM revoked_token WHERE did=? AND jti=?",
+				(payload["sub"], payload["jti"]),
+			).fetchone()[0]
+
+			if revoked:
+				raise web.HTTPUnauthorized(text="revoked token")
 
 			# if we reached this far, the payload must've been signed by us
 			if payload.get("scope") != "com.atproto.access":
@@ -81,7 +89,7 @@ def authenticated(handler):
 					algorithms=[alg],
 					audience=db.config["pds_did"],
 					options={
-						"require": ["exp", "iat", "lxm"],
+						"require": ["exp", "iat", "lxm", "jti", "iss"],
 						"verify_exp": True,
 						"verify_iat": True,
 						"strict_aud": True,  # may be unnecessary
@@ -89,6 +97,14 @@ def authenticated(handler):
 				)
 			except jwt.exceptions.PyJWTError:
 				raise web.HTTPUnauthorized(text="invalid jwt")
+
+			revoked = db.con.execute(
+				"SELECT COUNT(*) FROM revoked_token WHERE did=? AND jti=?",
+				(payload["iss"], payload["jti"]),
+			).fetchone()[0]
+
+			if revoked:
+				raise web.HTTPUnauthorized(text="revoked token")
 
 			request_lxm = request.path.rpartition("/")[2].partition("?")[0]
 			if request_lxm != payload.get("lxm"):

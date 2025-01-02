@@ -302,7 +302,7 @@ async def server_get_service_auth(request: web.Request):
 					"lxm": lxm,
 					"exp": exp,
 					"iat": now,
-					"jti": str(uuid.uuid4())
+					"jti": str(uuid.uuid4()),
 				},
 				signing_key,
 				algorithm=crypto.jwt_signature_alg_for_pem(signing_key),
