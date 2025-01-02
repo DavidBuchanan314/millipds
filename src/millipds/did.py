@@ -22,6 +22,7 @@ Security considerations for DID resolution:
 - Overly long DID document responses (handled here via a hard limit (64KiB))
 - Servers that are slow to respond (handled via timeouts configured in the ClientSession)
 - Non-canonically-encoded DIDs (handled here via strict regex - for now we don't support percent-encoding at all)
+- plc.directory could lie. Requesting /log/export would make things a bit more secure, but we don't do that yet.
 
 """
 
