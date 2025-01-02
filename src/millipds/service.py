@@ -294,10 +294,9 @@ async def server_refresh_session(request: web.Request):
 	)
 	request["authed_did"] = token_payload["sub"]
 
-	db = get_db(request)
-	db.con.execute(
+	get_db(request).con.execute(
 		"INSERT INTO revoked_token (did, jti, expires_at) VALUES (?, ?, ?)",
-		(request["authed_did"], token_payload["jti"], token_payload["exp"]),
+		(token_payload["sub"], token_payload["jti"], token_payload["exp"]),
 	)
 	return web.json_response(
 		session_info(request) | generate_session_tokens(request)
