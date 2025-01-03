@@ -122,7 +122,7 @@ Allow: /
 
 # browsers love to request this unprompted, so here's an answer for them
 @routes.get("/favicon.ico")
-async def health(request: web.Request):
+async def favicon(request: web.Request):
 	return web.Response(
 		text="""
 			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -353,6 +353,7 @@ async def server_get_service_auth(request: web.Request):
 
 	db = get_db(request)
 	signing_key = db.signing_key_pem_by_did(request["authed_did"])
+	assert signing_key is not None
 	return web.json_response(
 		{
 			"token": jwt.encode(

@@ -372,7 +372,7 @@ class Database:
 
 	def verify_account_login(
 		self, did_or_handle: str, password: str
-	) -> Tuple[str, str, str, str]:
+	) -> Tuple[str, str]:
 		row = self.con.execute(
 			"SELECT did, handle, pw_hash FROM user WHERE did=? OR handle=?",
 			(did_or_handle, did_or_handle),

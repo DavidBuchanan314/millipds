@@ -107,7 +107,7 @@ if TYPE_CHECKING:
 # The MST logic itself is hidden away inside the `atmst` module.
 def apply_writes(
 	db: Database, repo: str, writes: List["WriteOp"], swap_commit: Optional[str]
-) -> Tuple[bytes, int, bytes]:
+) -> Tuple[dict, int, bytes]:
 	# one big transaction (we could perhaps work in two phases, prepare (via read-only conn) then commit?)
 	with db.new_con() as con:
 		db_bs = DBBlockStore(con, repo)
