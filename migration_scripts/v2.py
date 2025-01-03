@@ -8,7 +8,7 @@ apsw.bestpractice.apply(apsw.bestpractice.recommended)
 from millipds import static_config
 
 
-def migrate(con):
+def migrate(con: apsw.Connection):
 	version_now, *_ = con.execute("SELECT db_version FROM config").fetchone()
 
 	assert version_now == 1
