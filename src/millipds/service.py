@@ -316,6 +316,8 @@ async def server_delete_session(request: web.Request):
 		request, token, "com.atproto.refresh"
 	)
 
+	# because (for now?) we set the same JTI in access tokens and refresh tokens,
+	# revoking one revokes both
 	get_db(request).con.execute(
 		"INSERT INTO revoked_token (did, jti, expires_at) VALUES (?, ?, ?)",
 		(token_payload["sub"], token_payload["jti"], token_payload["exp"]),
