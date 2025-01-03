@@ -1,4 +1,5 @@
 import logging
+import json
 
 import jwt
 from aiohttp import web
@@ -32,10 +33,15 @@ def verify_symmetric_token(
 		# https://github.com/bluesky-social/atproto/discussions/3319
 		# we need to signal this error in this specific format so the reference
 		# client implementation will know what to do
-		raise web.HTTPBadRequest(json={
-			"error": "ExpiredToken",
-			"message": "bad exp",
-		})
+		raise web.HTTPBadRequest(
+			body=json.dumps(
+				{
+					"error": "ExpiredToken",
+					"message": "bad exp",
+				}
+			),
+			content_type="application/json",
+		)
 	except jwt.exceptions.PyJWTError:
 		raise web.HTTPUnauthorized(text="invalid jwt")
 
