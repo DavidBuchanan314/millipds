@@ -207,8 +207,12 @@ def session_info(request: web.Request) -> dict:
 	return {
 		"handle": get_db(request).handle_by_did(request["authed_did"]),
 		"did": request["authed_did"],
-		"email": "tfw_no@email.invalid",  # this and below are just here for testing lol
+
+		# we specify a fake email and claim it's verified, because otherwise
+		# bsky.app would nag us to verify it
+		"email": "tfw_no@email.invalid",
 		"emailConfirmed": True,
+
 		# "didDoc": {}, # iiuc this is only used for entryway usecase?
 	}
 
