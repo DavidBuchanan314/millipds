@@ -28,6 +28,14 @@ def verify_symmetric_token(
 				"strict_aud": True,  # may be unnecessary
 			},
 		)
+	except jwt.exceptions.ExpiredSignatureError:
+		# https://github.com/bluesky-social/atproto/discussions/3319
+		# we need to signal this error in this specific format so the reference
+		# client implementation will know what to do
+		raise web.HTTPBadRequest(json={
+			"error": "ExpiredToken",
+			"message": "bad exp",
+		})
 	except jwt.exceptions.PyJWTError:
 		raise web.HTTPUnauthorized(text="invalid jwt")
 
