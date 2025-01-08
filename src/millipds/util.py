@@ -4,9 +4,19 @@ import json
 import datetime
 import itertools
 import asyncio
-from typing import BinaryIO, Iterator, Tuple, Optional, Any, Dict, Hashable
+from typing import (
+	BinaryIO,
+	Iterator,
+	Tuple,
+	Optional,
+	Any,
+	Dict,
+	Hashable,
+	Type,
+)
 from weakref import WeakValueDictionary
 
+from aiohttp import web
 
 import cbrrr
 from atmst.blockstore.car_file import encode_varint
@@ -131,3 +141,17 @@ class PartitionedLock:
 			lock = asyncio.Lock()
 			self._locks[key] = lock
 		return lock
+
+
+def atproto_json_http_error(
+	exp: Type[web.HTTPError], ename: str, emsg: str
+) -> web.HTTPError:
+	return exp(
+		body=json.dumps(
+			{
+				"error": ename,
+				"message": emsg,
+			}
+		),
+		content_type="application/json",
+	)
