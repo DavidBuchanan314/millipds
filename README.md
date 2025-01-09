@@ -29,3 +29,11 @@ podman run --rm -it -p 8123:8123 millipds_dev
 ### Production deployment on Ubuntu (and similar systems) [WIP]
 
 See [./docs/DEPLOY.md](./docs/DEPLOY.md)
+
+
+### Running the tests locally
+
+```sh
+python3 -m pip install -e .[test]  # install the testing dependencies (only needed once, unless new deps are added)
+python3 -m pytest .  # run the tests
+```
