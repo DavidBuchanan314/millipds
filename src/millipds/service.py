@@ -379,9 +379,13 @@ async def identity_update_handle(request: web.Request):
 	handle = req_json.get("handle")
 	if handle is None:
 		raise web.HTTPBadRequest(text="missing or invalid handle")
-	# TODO: actually validate it, and update the db!!!
+	# TODO: actually validate it
 	# (I'm writing this half-baked version just so I can send firehose #identity events)
 	with get_db(request).new_con() as con:
+		con.execute(
+			"UPDATE user SET handle = ? WHERE did = ?",
+			(handle, request["authed_did"]),
+		)
 		# TODO: refactor to avoid duplicated logic between here and apply_writes
 		firehose_seq = con.execute(
 			"SELECT IFNULL(MAX(seq), 0) + 1 FROM firehose"
