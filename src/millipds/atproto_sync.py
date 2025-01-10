@@ -190,7 +190,7 @@ async def sync_list_blobs(request: web.Request):
 	limit = int(request.query.get("limit", 500))
 	if limit < 1 or limit > 1000:
 		raise web.HTTPBadRequest(text="limit out of range")
-	cursor = int(request.query.get("cursor") or 0)
+	cursor = int(request.query.get("cursor", 0))
 
 	cids = []
 	for id_, cid in get_db(request).con.execute(
@@ -246,9 +246,9 @@ async def sync_subscribe_repos(request: web.Request):
 		await ws.prepare(request)  # TODO: should this be outside of try?
 
 		last_sent_seq = None
-		if cursor_str := request.query.get("cursor"):
+		if "cursor" in request.query:
 			# TODO: try to limit number of concurrent backfillers? (it's more expensive than livetailing)
-			cursor = int(cursor_str)
+			cursor = int(request.query["cursor"])
 			db = get_db(request)
 			while True:
 				# we read one at a time to force gaps between reads - could be a perf win to read in small batches

@@ -220,9 +220,8 @@ async def repo_list_records(request: web.Request):
 	if limit < 1 or limit > 100:
 		raise web.HTTPBadRequest(text="limit out of range")
 	reverse = request.query.get("reverse") == "true"
-	cursor = request.query.get("cursor", "")
-	if not reverse and not cursor:
-		cursor = "\xff"  # compares greater than all valid rkeys
+	# note: "" compares less than all valid rkeys, "\xff" greater than.
+	cursor = request.query.get("cursor", "" if reverse else "\xff")
 	did_or_handle = request.query["repo"]
 	collection = request.query["collection"]
 	records = []
