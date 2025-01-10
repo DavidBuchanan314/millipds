@@ -150,6 +150,7 @@ class Database:
 			) STRICT
 			"""
 		)
+		# TODO: index on timestamp for efficient purging of old events.
 
 		# repo storage stuff
 		self.con.execute(

@@ -494,17 +494,18 @@ async def test_deleteSession(s, pds_host):
 	) as r:
 		assert r.status != 200
 
+
 async def test_updateHandle(s, pds_host, auth_headers):
 	async with s.post(
 		pds_host + "/xrpc/com.atproto.identity.updateHandle",
 		headers=auth_headers,
-		json={ "handle": "juliet.test" },
+		json={"handle": "juliet.test"},
 	) as r:
 		assert r.status == 200
 
 	async with s.get(
 		pds_host + "/xrpc/com.atproto.repo.describeRepo",
-		params={ "repo":  TEST_DID },
+		params={"repo": TEST_DID},
 	) as r:
 		assert r.status == 200
 		r = await r.json()
