@@ -37,3 +37,15 @@ See [./docs/DEPLOY.md](./docs/DEPLOY.md)
 python3 -m pip install -e .[test]  # install the testing dependencies (only needed once, unless new deps are added)
 python3 -m pytest .  # run the tests
 ```
+
+### Create account
+
+```sh
+export HANDLE=alice.example.com
+export PDS_HOST=$(echo $HANDLE | sed -e 's/^\w*\.//')
+millipds util keygen > atproto-private.pem
+export REPO_PUBKEY=$(millipds util print_pubkey atproto-private.pem)
+millipds util plcgen --handle "${HANDLE}" --pds_host "${PDS_HOST}" --repo_pubkey "${REPO_PUBKEY}" --rotation_key atproto-private.pem --genesis_json atproto-genesis.json | tee atproto-did-plc.txt
+export DID_PLC=$(cat atproto-did-plc.txt)
+millipds account create "${DID_PLC}" "${HANDLE}" --signing_key atproto-private.pem
+```
