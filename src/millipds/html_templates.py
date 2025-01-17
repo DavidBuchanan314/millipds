@@ -176,7 +176,7 @@ def authz_page(handle) -> str:
 			<li>deprecate your dependencies</li>
 		</ul>
 		<p>this is just a UI test, it doesn't actually do anything yet.</p>
-		<form action="/oauth/foobar" method="POST">
+		<form action="" method="POST">
 			<input type="submit" value="authorize">
 		</form>"""
 
@@ -193,6 +193,23 @@ def error_page(msg: str) -> str:
 	"""
 
 	return AUTH_PANEL_HEAD + error_body + AUTH_PANEL_TAIL
+
+
+def redirect(location: str) -> str:
+	# TODO: consider CSS?
+	redirect_html: html = f"""\
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8">
+		<meta http-equiv="refresh" content="0; url={escape(location)}" />
+	</head>
+	<body>
+		<p>You are being redirected...</p>
+		<p><a href="{escape(location)}">Click here</a> if it didn't work.</p>
+	</body>
+</html>"""
+	return redirect_html
 
 
 if __name__ == "__main__":

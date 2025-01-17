@@ -125,22 +125,78 @@ async def oauth_authorization_server(request: web.Request):
 # this is where a client will redirect to during the auth flow.
 # they'll see a webpage asking them to login
 @routes.get("/oauth/authorize")
-async def oauth_authorize(request: web.Request):
-	# TODO: extract request_uri
+async def oauth_authorize_get(request: web.Request):
+	now = int(time.time())
+	db = get_db(request)
+
+	session_token = request.cookies.get("millipds-oauth-session")
+	row = db.con.execute(
+		"""
+			SELECT user_id FROM oauth_session_cookie
+			WHERE token=? AND expires_at>?
+		""",
+		(session_token, now),
+	).fetchone()
+	if row is None:
+		# no active oauth cookie session
+		return web.HTTPTemporaryRedirect("/oauth/authenticate")
+
+	# if we reached here, either there was an existing session, or the user
+	# just created a new one and got redirected back again
+
+	did, handle = db.con.execute(
+		"SELECT did, handle FROM user WHERE id=?", row
+	).fetchone()
+	# TODO: check id hint in auth request matches!
+
+	# TODO: look at the requested scopes, see if the user already granted them already,
+	# display UI as appropriate
+
 	return web.Response(
-		text=html_templates.authn_page(
-			identifier_hint="todo.invalid"
-		),  # this includes a login form that POSTs to /oauth/authorize (i.e. same endpoint)
+		text=html_templates.authz_page(handle=handle),
 		content_type="text/html",
 		headers=WEBUI_HEADERS,
 	)
 
 
-# after login, assuming the creds were good, the user will be prompted to
-# authorize the client application to access certain scopes
 @routes.post("/oauth/authorize")
-async def oauth_authorize_handle_login(request: web.Request):
-	# TODO: CSRF tokens?
+async def oauth_authorize_post(request: web.Request):
+	now = int(time.time())
+	db = get_db(request)
+
+	session_token = request.cookies.get("millipds-oauth-session")
+	row = db.con.execute(
+		"""
+			SELECT user_id FROM oauth_session_cookie
+			WHERE token=? AND expires_at>?
+		""",
+		(session_token, now),
+	).fetchone()
+	if row is None:
+		# no active oauth cookie session
+		return web.HTTPTemporaryRedirect("/oauth/authenticate")
+
+	# TODO: redirect back to app?
+	return web.Response(
+		text="TODO",
+		content_type="text/html",
+		headers=WEBUI_HEADERS,
+	)
+
+
+@routes.get("/oauth/authenticate")
+async def oauth_authenticate_get(request: web.Request):
+	return web.Response(
+		text=html_templates.authn_page(
+			identifier_hint="todo.invalid"
+		),  # this includes a login form that POSTs to the same endpoint
+		content_type="text/html",
+		headers=WEBUI_HEADERS,
+	)
+
+
+@routes.post("/oauth/authenticate")
+async def oauth_authenticate_post(request: web.Request):
 	form = await request.post()
 	logging.info(form)
 
@@ -170,22 +226,23 @@ async def oauth_authorize_handle_login(request: web.Request):
 				now + static_config.OAUTH_COOKIE_EXP,
 			),
 		)
+		# we can't use a 301/302 redirect because we need to produce a GET
 		res = web.Response(
-			text=html_templates.authz_page(handle=handle),
+			text=html_templates.redirect("/oauth/authorize"),
 			content_type="text/html",
 			headers=WEBUI_HEADERS,
 		)
 		res.set_cookie(
-			name="millipds-session",
+			name="millipds-oauth-session",
 			value=session_token,
 			max_age=static_config.OAUTH_COOKIE_EXP,
+			path="/oauth/authorize",  # the only page that needs to see it
 			secure=True,  # prevents token from leaking over plaintext channels
 			httponly=True,  # prevents XSS from being able to steal tokens
 			samesite="Strict",  # mitigates CSRF
 		)
 		return res
 	except:
-		# TODO: error
 		return web.Response(
 			text=html_templates.authn_page(
 				identifier_hint=form_identifier,
@@ -271,7 +328,7 @@ async def oauth_pushed_authorization_request(request: web.Request):
 
 	# TODO: request client metadata???
 
-	# TODO: we need to store the request somewhere, and associate it with the URI we return
+	# TODO: we need to store the request somewhere, and associate it with the URI we return (and also the DPoP key)
 
 	return web.json_response(
 		{
