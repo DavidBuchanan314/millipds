@@ -275,6 +275,20 @@ class Database:
 			"""
 		)
 
+		# TODO: unsure if we need to track dpop jwk here?
+		# (if we do, it could just be a hash of the key)
+		self.con.execute(
+			"""
+			CREATE TABLE oauth_par(
+				uri TEXT PRIMARY KEY NOT NULL,
+				dpop_jwk BLOB NOT NULL,
+				value BLOB NOT NULL,
+				created_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL
+			) STRICT, WITHOUT ROWID
+			"""
+		)
+
 		# has user granted a particular scope to a particular app?
 		self.con.execute(
 			"""

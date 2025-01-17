@@ -321,18 +321,34 @@ def dpop_protected(handler):
 @dpop_protected
 async def oauth_pushed_authorization_request(request: web.Request):
 	# NOTE: rfc9126 says this is posted as form data, but this is atproto-flavoured oauth
-	data = await request.json()
-	logging.info(data)
+	request_json = await request.json()
+	logging.info(request_json)
 
-	assert data["client_id"] == request["dpop_iss"]  # idk if this is required
+	# idk if this is required
+	assert request_json["client_id"] == request["dpop_iss"]
 
-	# TODO: request client metadata???
+	now = int(time.time())
+	par_uri = "urn:ietf:params:oauth:request_uri:req-" + secrets.token_hex()
 
-	# TODO: we need to store the request somewhere, and associate it with the URI we return (and also the DPoP key)
+	# NOTE: we don't do any verification of the auth request itself, we just associate it with a URI for later retreival.
+	get_db(request).con.execute(
+		"""
+			INSERT INTO oauth_par (
+				uri, dpop_jwk, value, created_at, expires_at
+			) VALUES (?, ?, ?, ?, ?)
+		""",
+		(
+			par_uri,
+			request["dpop_jwk"],
+			cbrrr.encode_dag_cbor(request_json),
+			now,
+			now + static_config.OAUTH_PAR_EXP,
+		),
+	)
 
 	return web.json_response(
 		{
-			"request_uri": "urn:ietf:params:oauth:request_uri:req-064ed63e9fbf10815fd5f402f4f3e92a",  # XXX hardcoded test
-			"expires_in": 299,
+			"request_uri": par_uri,
+			"expires_in": static_config.OAUTH_PAR_EXP,
 		}
 	)
