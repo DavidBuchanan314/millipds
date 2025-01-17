@@ -4,6 +4,8 @@ there's really no need to pull in a proper templating framework.
 
 use https://marketplace.visualstudio.com/items?itemName=samwillis.python-inline-source
 to make this source look nice
+
+honestly though the amount of raw-html string interpolation in here is a bit scary
 """
 
 from typing import List
@@ -17,7 +19,7 @@ AUTH_PANEL_HEAD: html = """\
 	<head>
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<title>Authorize</title>
+		<title>Millipds</title>
 		<style>
 			/*html, body {
 				height: 100%
@@ -98,9 +100,9 @@ AUTH_PANEL_HEAD: html = """\
 			}
 
 			.error > h3 {
-				margin-top: 0;
+				margin-top: -1em;
 				margin-bottom: 0.5em;
-				margin-left: 0.5em;
+				/*margin-left: 0.5em;*/
 				display: inline-block;
 			}
 
@@ -108,35 +110,37 @@ AUTH_PANEL_HEAD: html = """\
 				margin: 0;
 			}
 
-.gg-danger {
-  box-sizing: border-box;
-  position: relative;
-  display: inline-block;
-  transform: scale(var(--ggs, 1));
-  width: 20px;
-  height: 20px;
-  border: 2px solid;
-  border-radius: 40px;
-}
-.gg-danger::after,
-.gg-danger::before {
-  content: "";
-  display: block;
-  box-sizing: border-box;
-  position: absolute;
-  border-radius: 3px;
-  width: 2px;
-  background: currentColor;
-  left: 7px;
-}
-.gg-danger::after {
-  top: 2px;
-  height: 8px;
-}
-.gg-danger::before {
-  height: 2px;
-  bottom: 2px;
-}
+			.gg-danger {
+				vertical-align: middle;
+				box-sizing: border-box;
+				position: relative;
+				display: inline-block;
+				transform: scale(var(--ggs, 1));
+				width: 20px;
+				height: 20px;
+				border: 2px solid;
+				border-radius: 40px;
+				margin-right: 0.5em;
+			}
+			.gg-danger::after,
+			.gg-danger::before {
+				content: "";
+				display: block;
+				box-sizing: border-box;
+				position: absolute;
+				border-radius: 3px;
+				width: 2px;
+				background: currentColor;
+				left: 7px;
+			}
+			.gg-danger::after {
+				top: 2px;
+				height: 8px;
+			}
+			.gg-danger::before {
+				height: 2px;
+				bottom: 2px;
+			}
 		</style>
 	</head>
 	<body>
@@ -162,8 +166,7 @@ def authn_page(identifier_hint, error_msg=None) -> str:
 	if error_msg:
 		error_html: html = f"""\
 			<div class="error">
-				<div class="gg-danger"></div>
-				<h3>oops</h3>
+				<h3><div class="gg-danger"></div>oops</h3>
 				<p>{escape(error_msg)}</p>
 			</div>
 		"""
@@ -190,6 +193,8 @@ def authz_page(handle: str, client_id: str, scopes: List[str]) -> str:
 		</ul>
 		<p>this is just a UI test, it doesn't actually do anything yet.</p>
 		<form action="" method="POST">
+			<input type="hidden" name="client_id" value="{escape(client_id)}">
+			<input type="hidden" name="scope" value="{escape(' '.join(scopes))}">
 			<input type="submit" value="authorize">
 		</form>"""
 
@@ -199,8 +204,7 @@ def authz_page(handle: str, client_id: str, scopes: List[str]) -> str:
 def error_page(msg: str) -> str:
 	error_body: html = f"""\
 		<div class="error">
-			<div class="gg-danger"></div>
-			<h3>oops</h3>
+			<h3><div class="gg-danger"></div>oops</h3>
 			<p>{escape(msg)}</p>
 		</div>
 	"""
