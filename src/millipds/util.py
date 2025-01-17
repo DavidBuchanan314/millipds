@@ -16,7 +16,7 @@ from typing import (
 )
 from weakref import WeakValueDictionary
 
-from aiohttp import web
+from aiohttp import web, ClientSession
 
 import cbrrr
 from atmst.blockstore.car_file import encode_varint
@@ -155,3 +155,14 @@ def atproto_json_http_error(
 		),
 		content_type="application/json",
 	)
+
+
+async def get_json_with_limit(session: ClientSession, url: str, limit: int):
+	async with session.get(url) as r:
+		r.raise_for_status()
+		try:
+			await r.content.readexactly(limit)
+			raise ValueError("DID document too large")
+		except asyncio.IncompleteReadError as e:
+			# this is actually the happy path
+			return json.loads(e.partial)

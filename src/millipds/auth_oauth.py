@@ -13,6 +13,7 @@ from . import database
 from . import html_templates
 from .app_util import *
 from . import static_config
+from . import util
 
 logger = logging.getLogger(__name__)
 
@@ -144,20 +145,84 @@ async def oauth_authorize_get(request: web.Request):
 			"/oauth/authenticate?"
 			+ urllib.parse.urlencode({"next": request.path_qs})
 		)
+	user_id = row[0]
 
 	# if we reached here, either there was an existing session, or the user
 	# just created a new one and got redirected back again
 
+	client_id_param = request.query.get("client_id")
+	request_uri_param = request.query.get("request_uri")
+
+	# retreive the PAR we stashed earlier
+	row = db.con.execute(
+		"""
+			SELECT value FROM oauth_par
+			WHERE uri=? AND expires_at>?
+		""",
+		(request_uri_param, now),
+	).fetchone()
+	if row is None:
+		return web.Response(
+			text=html_templates.error_page(
+				"bad request_uri parameter. it should've been set by the client that sent you here."
+			),
+			content_type="text/html",
+			headers=WEBUI_HEADERS,
+		)
+	authorization_request = cbrrr.decode_dag_cbor(row[0])
+	logger.info(authorization_request)
+
+	# XXX: why is the client_id sent in the request params in the first place anyway? seems like redundant information
+	if (
+		not client_id_param
+		or authorization_request.get("client_id") != client_id_param
+	):
+		return web.Response(
+			text=html_templates.error_page(
+				"client_id in URL does not match authorization request."
+			),
+			content_type="text/html",
+			headers=WEBUI_HEADERS,
+		)
+
+	try:
+		client_id_doc = await util.get_json_with_limit(
+			get_client(request), client_id_param, 0x10000
+		)  # 64k limit
+		logger.info(client_id_doc)
+		if not isinstance(client_id_doc, dict):
+			raise TypeError("expected client_id_doc to be dict")
+	except:
+		return web.Response(
+			text=html_templates.error_page(
+				"failed to retrieve client_id document."
+			),
+			content_type="text/html",
+			headers=WEBUI_HEADERS,
+		)
+
+	if client_id_doc.get("client_id") != client_id_param:
+		return web.Response(
+			text=html_templates.error_page(
+				"client_id document does not contain its own client_id"
+			),
+			content_type="text/html",
+			headers=WEBUI_HEADERS,
+		)
+
 	did, handle = db.con.execute(
-		"SELECT did, handle FROM user WHERE id=?", row
+		"SELECT did, handle FROM user WHERE id=?", (user_id,)
 	).fetchone()
 	# TODO: check id hint in auth request matches!
 
-	# TODO: look at the requested scopes, see if the user already granted them already,
+	scopes = set(authorization_request.get("scope", "").split(" "))
+	# TODO: look at the requested scopes, see if the user already granted them,
 	# display UI as appropriate
 
 	return web.Response(
-		text=html_templates.authz_page(handle=handle),
+		text=html_templates.authz_page(
+			handle=handle, client_id=client_id_param, scopes=list(scopes)
+		),
 		content_type="text/html",
 		headers=WEBUI_HEADERS,
 	)
@@ -333,7 +398,7 @@ def dpop_protected(handler):
 async def oauth_pushed_authorization_request(request: web.Request):
 	# NOTE: rfc9126 says this is posted as form data, but this is atproto-flavoured oauth
 	request_json = await request.json()
-	logging.info(request_json)
+	logger.info(request_json)
 
 	# idk if this is required
 	assert request_json["client_id"] == request["dpop_iss"]

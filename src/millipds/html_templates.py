@@ -6,6 +6,7 @@ use https://marketplace.visualstudio.com/items?itemName=samwillis.python-inline-
 to make this source look nice
 """
 
+from typing import List
 from html import escape
 
 html = str
@@ -83,6 +84,10 @@ AUTH_PANEL_HEAD: html = """\
 				background-color: #1a1a1a;
 				font-size: 12pt;
 				padding: 0.2em 0.5em;
+			}
+
+			li {
+				margin-top: 0.5em;
 			}
 
 			.error {
@@ -166,14 +171,22 @@ def authn_page(identifier_hint, error_msg=None) -> str:
 	return AUTH_PANEL_HEAD + authn_body + AUTH_PANEL_TAIL
 
 
-def authz_page(handle) -> str:
+SCOPE_DESCRIPTIONS = {
+	"atproto": "know your atproto DID",
+	"transition:generic": "have full read/write access to your atproto account (except DMs)",
+	"transition:chat.bsky": "have read/write access to your DMs",
+}
+
+
+def authz_page(handle: str, client_id: str, scopes: List[str]) -> str:
 	authz_body: html = f"""\
 		<p>Hello, <code>{escape(handle)}</code></p>
-		<h3>application <code>http://localhost/foobar.json</code> wants permission to:</h3>
+		<h3>application <code>{escape(client_id)}</code> wants permission to:</h3>
 		<ul>
-			<li>eat the last donut</li>
-			<li>install linux on your toaster</li>
-			<li>deprecate your dependencies</li>
+			{"\n".join(
+				f"<li>{SCOPE_DESCRIPTIONS.get(scope, "[unknown]")} (<code>{escape(scope)}</code>)</li>"
+				for scope in scopes
+			)}
 		</ul>
 		<p>this is just a UI test, it doesn't actually do anything yet.</p>
 		<form action="" method="POST">

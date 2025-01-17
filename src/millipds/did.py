@@ -120,33 +120,26 @@ class DIDResolver:
 			raise ValueError(f"Unsupported DID method: {method}")
 		return await resolver(did)
 
-	# 64k ought to be enough for anyone!
-	async def _get_json_with_limit(self, url: str, limit: int) -> DIDDoc:
-		async with self.session.get(url) as r:
-			r.raise_for_status()
-			try:
-				await r.content.readexactly(limit)
-				raise ValueError("DID document too large")
-			except asyncio.IncompleteReadError as e:
-				# this is actually the happy path
-				return json.loads(e.partial)
-
 	async def resolve_did_web(self, did: str) -> DIDDoc:
 		# TODO: support port numbers on localhost?
 		if not re.match(r"^did:web:[a-z0-9\.\-]+$", did):
 			raise ValueError("Invalid did:web")
 		host = did.rpartition(":")[2]
 
-		return await self._get_json_with_limit(
-			f"https://{host}/.well-known/did.json", self.DIDDOC_LENGTH_LIMIT
+		return await util.get_json_with_limit(
+			self.session,
+			f"https://{host}/.well-known/did.json",
+			self.DIDDOC_LENGTH_LIMIT,
 		)
 
 	async def resolve_did_plc(self, did: str) -> DIDDoc:
 		if not re.match(r"^did:plc:[a-z2-7]+$", did):  # base32-sortable
 			raise ValueError("Invalid did:plc")
 
-		return await self._get_json_with_limit(
-			f"{self.plc_directory_host}/{did}", self.DIDDOC_LENGTH_LIMIT
+		return await util.get_json_with_limit(
+			self.session,
+			f"{self.plc_directory_host}/{did}",
+			self.DIDDOC_LENGTH_LIMIT,
 		)
 
 
