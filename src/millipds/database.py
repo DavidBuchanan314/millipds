@@ -248,6 +248,8 @@ class Database:
 
 		# this is only for the tokens *we* issue, dpop jti will be tracked separately
 		# there's no point remembering that an expired token was revoked, and we'll garbage-collect these periodically
+		# note: I'm using did here instead of user_id, this is vaguely inconsistent
+		# with other tables but in practice it should reduce query complexity
 		self.con.execute(
 			"""
 			CREATE TABLE revoked_token(
@@ -262,13 +264,26 @@ class Database:
 		# oauth stuff!
 		self.con.execute(
 			"""
-			CREATE TABLE session_cookie(
+			CREATE TABLE oauth_session_cookie(
 				token TEXT PRIMARY KEY NOT NULL,
 				user_id INTEGER NOT NULL,
 				value BLOB NOT NULL,
 				created_at INTEGER NOT NULL,
 				expires_at INTEGER NOT NULL,
 				FOREIGN KEY (user_id) REFERENCES user(id)
+			) STRICT, WITHOUT ROWID
+			"""
+		)
+
+		# has user granted a particular scope to a particular app?
+		self.con.execute(
+			"""
+			CREATE TABLE oauth_grants(
+				user_id INTEGER NOT NULL,
+				client_id TEXT NOT NULL,
+				scope TEXT NOT NULL,
+				FOREIGN KEY (user_id) REFERENCES user(id),
+				PRIMARY KEY (user_id, client_id, scope)
 			) STRICT, WITHOUT ROWID
 			"""
 		)

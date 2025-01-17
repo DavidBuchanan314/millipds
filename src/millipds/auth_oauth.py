@@ -158,7 +158,7 @@ async def oauth_authorize_handle_login(request: web.Request):
 		now = int(time.time())
 		db.con.execute(
 			"""
-				INSERT INTO session_cookie (
+				INSERT INTO oauth_session_cookie (
 					token, user_id, value, created_at, expires_at
 				) VALUES (?, ?, ?, ?, ?)
 			""",
