@@ -5,6 +5,7 @@ import cbrrr
 import json
 import secrets
 import time
+import urllib.parse
 
 from aiohttp import web
 
@@ -139,7 +140,10 @@ async def oauth_authorize_get(request: web.Request):
 	).fetchone()
 	if row is None:
 		# no active oauth cookie session
-		return web.HTTPTemporaryRedirect("/oauth/authenticate")
+		return web.HTTPTemporaryRedirect(
+			"/oauth/authenticate?"
+			+ urllib.parse.urlencode({"next": request.path_qs})
+		)
 
 	# if we reached here, either there was an existing session, or the user
 	# just created a new one and got redirected back again
@@ -164,6 +168,7 @@ async def oauth_authorize_post(request: web.Request):
 	now = int(time.time())
 	db = get_db(request)
 
+	# TODO: don't duplicate code between here and the GET handler
 	session_token = request.cookies.get("millipds-oauth-session")
 	row = db.con.execute(
 		"""
@@ -174,7 +179,11 @@ async def oauth_authorize_post(request: web.Request):
 	).fetchone()
 	if row is None:
 		# no active oauth cookie session
-		return web.HTTPTemporaryRedirect("/oauth/authenticate")
+		# this should be pretty rare - session expired between the initial GET and the form submission
+		return web.HTTPTemporaryRedirect(
+			"/oauth/authenticate?"
+			+ urllib.parse.urlencode({"next": request.path_qs})
+		)
 
 	# TODO: redirect back to app?
 	return web.Response(
@@ -227,8 +236,10 @@ async def oauth_authenticate_post(request: web.Request):
 			),
 		)
 		# we can't use a 301/302 redirect because we need to produce a GET
+		next = request.query.get("next", "")
+		# TODO: !!!important!!! assert next is a relative URL, or absolutify it somehow
 		res = web.Response(
-			text=html_templates.redirect("/oauth/authorize"),
+			text=html_templates.redirect(next),
 			content_type="text/html",
 			headers=WEBUI_HEADERS,
 		)
