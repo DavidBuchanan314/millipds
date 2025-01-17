@@ -259,6 +259,20 @@ class Database:
 			"""
 		)
 
+		# oauth stuff!
+		self.con.execute(
+			"""
+			CREATE TABLE session_cookie(
+				token TEXT PRIMARY KEY NOT NULL,
+				user_id INTEGER NOT NULL,
+				value BLOB NOT NULL,
+				created_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL,
+				FOREIGN KEY (user_id) REFERENCES user(id)
+			) STRICT, WITHOUT ROWID
+			"""
+		)
+
 	def update_config(
 		self,
 		pds_pfx: Optional[str] = None,
@@ -373,19 +387,19 @@ class Database:
 
 	def verify_account_login(
 		self, did_or_handle: str, password: str
-	) -> Tuple[str, str]:
+	) -> Tuple[int, str, str]:
 		row = self.con.execute(
-			"SELECT did, handle, pw_hash FROM user WHERE did=? OR handle=?",
+			"SELECT id, did, handle, pw_hash FROM user WHERE did=? OR handle=?",
 			(did_or_handle, did_or_handle),
 		).fetchone()
 		if row is None:
 			raise KeyError("no account found for did")
-		did, handle, pw_hash = row
+		user_id, did, handle, pw_hash = row
 		try:
 			self.pw_hasher.verify(pw_hash, password)
 		except argon2.exceptions.VerifyMismatchError:
 			raise ValueError("invalid password")
-		return did, handle
+		return user_id, did, handle
 
 	def did_by_handle(self, handle: str) -> Optional[str]:
 		row = self.con.execute(

@@ -32,3 +32,5 @@ PLC_DIRECTORY_HOST = "https://plc.directory"
 
 ACCESS_EXP = 60 * 60 * 2  # 2 h
 REFRESH_EXP = 60 * 60 * 24 * 90  # 90 days
+
+OAUTH_COOKIE_EXP = 60 * 60 * 24 * 90  # 90 days

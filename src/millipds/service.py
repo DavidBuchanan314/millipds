@@ -269,7 +269,7 @@ async def server_create_session(request: web.Request):
 	# do authentication
 	db = get_db(request)
 	try:
-		did, handle = db.verify_account_login(
+		user_id, did, handle = db.verify_account_login(
 			did_or_handle=identifier, password=password
 		)
 	except KeyError:

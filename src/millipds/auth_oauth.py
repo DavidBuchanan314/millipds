@@ -3,12 +3,15 @@ import logging
 import jwt
 import cbrrr
 import json
+import secrets
+import time
 
 from aiohttp import web
 
 from . import database
 from . import html_templates
 from .app_util import *
+from . import static_config
 
 logger = logging.getLogger(__name__)
 
@@ -146,12 +149,41 @@ async def oauth_authorize_handle_login(request: web.Request):
 	form_password = form.get("password", "")
 
 	try:
-		did, handle = db.verify_account_login(form_identifier, form_password)
-		return web.Response(
+		user_id, did, handle = db.verify_account_login(
+			form_identifier, form_password
+		)
+		# login succeeded, let's start a new cookie session
+		session_token = secrets.token_hex()
+		session_value = {}
+		now = int(time.time())
+		db.con.execute(
+			"""
+				INSERT INTO session_cookie (
+					token, user_id, value, created_at, expires_at
+				) VALUES (?, ?, ?, ?, ?)
+			""",
+			(
+				session_token,
+				user_id,
+				cbrrr.encode_dag_cbor(session_value),
+				now,
+				now + static_config.OAUTH_COOKIE_EXP,
+			),
+		)
+		res = web.Response(
 			text=html_templates.authz_page(handle=handle),
 			content_type="text/html",
 			headers=WEBUI_HEADERS,
 		)
+		res.set_cookie(
+			name="millipds-session",
+			value=session_token,
+			max_age=static_config.OAUTH_COOKIE_EXP,
+			secure=True,  # prevents token from leaking over plaintext channels
+			httponly=True,  # prevents XSS from being able to steal tokens
+			samesite="Strict",  # mitigates CSRF
+		)
+		return res
 	except:
 		# TODO: error
 		return web.Response(
