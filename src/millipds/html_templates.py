@@ -184,7 +184,7 @@ def authz_page(handle: str, client_id: str, scopes: List[str]) -> str:
 		<h3>application <code>{escape(client_id)}</code> wants permission to:</h3>
 		<ul>
 			{chr(0x0a).join(
-				f"<li>{SCOPE_DESCRIPTIONS.get(scope, "[unknown]")} (<code>{escape(scope)}</code>)</li>"
+				f"<li>{SCOPE_DESCRIPTIONS.get(scope, '[unknown]')} (<code>{escape(scope)}</code>)</li>"
 				for scope in scopes
 			)}
 		</ul>
