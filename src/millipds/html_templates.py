@@ -6,6 +6,8 @@ use https://marketplace.visualstudio.com/items?itemName=samwillis.python-inline-
 to make this source look nice
 """
 
+from html import escape
+
 html = str
 
 AUTH_PANEL_HEAD: html = """\
@@ -64,6 +66,7 @@ AUTH_PANEL_HEAD: html = """\
 				font-weight: bold;
 				box-shadow: 2px 2px #000;
 				margin-bottom: 0;
+				text-shadow: 1px 1px rgba(0,0,0,0.4);
 				/*border: 0.1px solid #fff;*/
 			}
 
@@ -83,7 +86,8 @@ AUTH_PANEL_HEAD: html = """\
 			}
 
 			.error {
-				background-color: #ff0048;
+				color: #000;
+				background-color: #f0ec57;
 				padding: 1em;
 				margin-top: 1.5em;
 			}
@@ -142,19 +146,29 @@ AUTH_PANEL_TAIL: html = """
 """
 
 
-def authn_page() -> str:
-	authn_body: html = """\
+def authn_page(identifier_hint, error_msg=None) -> str:
+	authn_body: html = f"""\
 		<h3>put yer creds in the box.</h3>
 		<form action="" method="POST">
-			<label>handle: <input type="text" name="handle" value="todo.invalid" placeholder="bob.example.org"></label>
-			<label>password: <input type="password" name="password" placeholder="password"></label>
+			<label>identifier: <input required type="text" name="identifier" value="{escape(identifier_hint)}" placeholder="bob.example.org"></label>
+			<label>password: <input required type="password" name="password" placeholder="password"></label>
 			<input type="submit" value="sign in">
 		</form>"""
+	if error_msg:
+		error_html: html = f"""\
+			<div class="error">
+				<div class="gg-danger"></div>
+				<h3>oops</h3>
+				<p>{escape(error_msg)}</p>
+			</div>
+		"""
+		authn_body += error_html
 	return AUTH_PANEL_HEAD + authn_body + AUTH_PANEL_TAIL
 
 
-def authz_page() -> str:
-	authz_body: html = """\
+def authz_page(handle) -> str:
+	authz_body: html = f"""\
+		<p>Hello, <code>{escape(handle)}</code></p>
 		<h3>application <code>http://localhost/foobar.json</code> wants permission to:</h3>
 		<ul>
 			<li>eat the last donut</li>
@@ -174,7 +188,7 @@ def error_page(msg: str) -> str:
 		<div class="error">
 			<div class="gg-danger"></div>
 			<h3>oops</h3>
-			<p>{msg}</p>
+			<p>{escape(msg)}</p>
 		</div>
 	"""
 

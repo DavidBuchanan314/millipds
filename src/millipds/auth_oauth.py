@@ -125,7 +125,9 @@ async def oauth_authorization_server(request: web.Request):
 async def oauth_authorize(request: web.Request):
 	# TODO: extract request_uri
 	return web.Response(
-		text=html_templates.authn_page(),  # this includes a login form that POSTs to /oauth/authorize (i.e. same endpoint)
+		text=html_templates.authn_page(
+			identifier_hint="todo.invalid"
+		),  # this includes a login form that POSTs to /oauth/authorize (i.e. same endpoint)
 		content_type="text/html",
 		headers=WEBUI_HEADERS,
 	)
@@ -135,12 +137,31 @@ async def oauth_authorize(request: web.Request):
 # authorize the client application to access certain scopes
 @routes.post("/oauth/authorize")
 async def oauth_authorize_handle_login(request: web.Request):
-	# TODO: actually handle login
-	return web.Response(
-		text=html_templates.authz_page(),
-		content_type="text/html",
-		headers=WEBUI_HEADERS,
-	)
+	# TODO: CSRF tokens?
+	form = await request.post()
+	logging.info(form)
+
+	db = get_db(request)
+	form_identifier = form.get("identifier", "")
+	form_password = form.get("password", "")
+
+	try:
+		did, handle = db.verify_account_login(form_identifier, form_password)
+		return web.Response(
+			text=html_templates.authz_page(handle=handle),
+			content_type="text/html",
+			headers=WEBUI_HEADERS,
+		)
+	except:
+		# TODO: error
+		return web.Response(
+			text=html_templates.authn_page(
+				identifier_hint=form_identifier,
+				error_msg="incorrect identifier or password",
+			),
+			content_type="text/html",
+			headers=WEBUI_HEADERS,
+		)
 
 
 DPOP_NONCE = "placeholder_nonce_value"  # this needs to get rotated! (does it matter that it's global?)
@@ -158,9 +179,9 @@ def dpop_protected(handler):
 		)
 		jwk_data = unverified["header"]["jwk"]
 		jwk = jwt.PyJWK.from_dict(jwk_data)
-		decoded: dict = jwt.decode(
-			dpop, key=jwk
-		)  # actual signature verification happens here
+
+		# actual signature verification happens here:
+		decoded: dict = jwt.decode(dpop, key=jwk)
 
 		logger.info(decoded)
 		logger.info(request.url)
@@ -210,14 +231,15 @@ def dpop_protected(handler):
 @routes.post("/oauth/par")
 @dpop_protected
 async def oauth_pushed_authorization_request(request: web.Request):
-	data = (
-		await request.json()
-	)  # TODO: doesn't rfc9126 say it's posted as form data?
+	# NOTE: rfc9126 says this is posted as form data, but this is atproto-flavoured oauth
+	data = await request.json()
 	logging.info(data)
 
 	assert data["client_id"] == request["dpop_iss"]  # idk if this is required
 
-	# we need to store the request somewhere, and associate it with the URI we return
+	# TODO: request client metadata???
+
+	# TODO: we need to store the request somewhere, and associate it with the URI we return
 
 	return web.json_response(
 		{
