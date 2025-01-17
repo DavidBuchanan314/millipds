@@ -195,7 +195,7 @@ async def oauth_authorize_get(request: web.Request):
 	except:
 		return web.Response(
 			text=html_templates.error_page(
-				"failed to retrieve client_id document."
+				"client_id document retrieval failed."
 			),
 			content_type="text/html",
 			headers=WEBUI_HEADERS,
