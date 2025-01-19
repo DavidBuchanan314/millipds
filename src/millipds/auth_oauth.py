@@ -5,6 +5,8 @@ import cbrrr
 import json
 import secrets
 import time
+import hashlib
+import base64
 import urllib.parse
 
 from aiohttp import web
@@ -165,13 +167,14 @@ def get_or_initiate_oauth_session(request: web.Request, login_hint: str) -> int:
 	Get the user id if the currently auth'd user.
 	If there is no valid session, raise a redirect to the login page.
 	"""
+
 	user_id = (
 		get_db(request)
 		.con.execute(
 			"""
-			SELECT user_id FROM oauth_session_cookie
-			WHERE token=? AND expires_at>?
-		""",
+				SELECT user_id FROM oauth_session_cookie
+				WHERE token=? AND expires_at>?
+			""",
 			(request.cookies.get("millipds-oauth-session"), int(time.time())),
 		)
 		.get
@@ -205,7 +208,6 @@ async def oauth_authorize_get(request: web.Request):
 	logger.info(authorization_request)
 
 	login_hint = authorization_request.get("login_hint", "")
-
 	user_id = get_or_initiate_oauth_session(request, login_hint)
 	# if we reached here, either there was an existing session, or the user
 	# just created a new one and got redirected back again
@@ -420,6 +422,60 @@ def dpop_protected(handler):
 		return res
 
 	return dpop_handler
+
+
+@routes.post("/oauth/token")
+@dpop_protected
+async def oauth_token_post(request: web.Request):
+	form: dict = await request.json()
+	logger.info(form)
+
+	# `code` will be an encrypted JWT - decrypt it, pull out the code_challenge, verify it
+
+	# expected_code_challenge = base64.urlsafe_b64encode(hashlib.sha256(form["code_verifier"].encode("ascii")).digest()).rstrip(b"=").decode()
+
+	return web.json_response(
+		{
+			"access_token": "MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3",
+			"token_type": "DPoP",
+			"expires_in": 3600,
+			"refresh_token": "IwOGYzYTlmM2YxOTQ5MGE3YmNmMDFkNTVk",
+			"scope": "atproto transition:generic",
+			"sub": "did:plc:bwxddkvw5c6pkkntbtp2j4lx",
+		}
+	)
+
+	"""
+	auth request from client:
+	{
+	'scope': 'atproto transition:generic',
+	'state': '5akVXvDXuRisJyAVE2jBMw',
+	'display': 'page',
+	'client_id': 'https://pdsls.dev/client-metadata.json',
+	'login_hint': 'local.dev.retr0.id',
+	'redirect_uri': 'https://pdsls.dev/',
+	'response_mode': 'fragment',
+	'response_type': 'code',
+	'code_challenge': 'c2R_cMGcIfTWcm-X2nQpofu15abQqE_5zKQCO3DJkrk',
+	'code_challenge_method': 'S256'
+	}
+
+	token request:
+	{
+	'grant_type': 'authorization_code',
+	'redirect_uri': 'https://pdsls.dev/',
+	'code': 'blah',
+	'code_verifier': 'E213vPOYmfV_IoMc0M8f5i3DMTWcAkhvYQ8pS50Ym0g',
+	'client_id': 'https://pdsls.dev/client-metadata.json'}
+	"""
+
+
+@routes.post("/oauth/revoke")
+@dpop_protected
+async def oauth_revoke_post(request: web.Request):
+	# TODO!!!!
+	logger.error("oauth token revocation not implemented!!!!")
+	return web.Response()
 
 
 @routes.post("/oauth/par")
