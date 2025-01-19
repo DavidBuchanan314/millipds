@@ -9,11 +9,11 @@ import urllib.parse
 
 from aiohttp import web
 
-from . import database
 from . import html_templates
 from .app_util import *
 from . import static_config
 from . import util
+from .util import definitely, NoneError
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,10 @@ async def oauth_authorization_server(request: web.Request):
 			],
 			"subject_types_supported": ["public"],
 			"response_types_supported": ["code"],
-			"response_modes_supported": ["query", "fragment", "form_post"],
+			"response_modes_supported": [
+				"query",
+				"fragment",
+			],  # , "form_post"],
 			"grant_types_supported": ["authorization_code", "refresh_token"],
 			"code_challenge_methods_supported": ["S256"],
 			"ui_locales_supported": ["en-US"],
@@ -124,90 +127,112 @@ async def oauth_authorization_server(request: web.Request):
 	)
 
 
-# this is where a client will redirect to during the auth flow.
-# they'll see a webpage asking them to login
-@routes.get("/oauth/authorize")
-async def oauth_authorize_get(request: web.Request):
-	now = int(time.time())
-	db = get_db(request)
+def pretty_error_page(msg: str) -> web.HTTPBadRequest:
+	return web.HTTPBadRequest(
+		text=html_templates.error_page(msg),
+		content_type="text/html",
+		headers=WEBUI_HEADERS,
+	)
 
-	session_token = request.cookies.get("millipds-oauth-session")
-	row = db.con.execute(
-		"""
+
+def get_auth_request(request: web.Request) -> dict:
+	"""
+	pull a previously PAR'd auth request from db, and check it isn't expired.
+	reads request_uri query parameter.
+	"""
+
+	try:
+		value, expires_at = definitely(
+			get_db(request)
+			.con.execute(
+				"SELECT value, expires_at FROM oauth_par WHERE uri=?",
+				(request.query.get("request_uri"),),
+			)
+			.fetchone()
+		)
+	except NoneError:
+		raise pretty_error_page("unrecognized request_uri.")
+
+	# we check for expiry on the python-side so we can give friendly errors
+	if expires_at < time.time():
+		raise pretty_error_page("authorization request expired. try again?")
+
+	return cbrrr.decode_dag_cbor(value)
+
+
+def get_or_initiate_oauth_session(request: web.Request, login_hint: str) -> int:
+	"""
+	Get the user id if the currently auth'd user.
+	If there is no valid session, raise a redirect to the login page.
+	"""
+	user_id = (
+		get_db(request)
+		.con.execute(
+			"""
 			SELECT user_id FROM oauth_session_cookie
 			WHERE token=? AND expires_at>?
 		""",
-		(session_token, now),
-	).fetchone()
-	if row is None:
-		# no active oauth cookie session
-		return web.HTTPTemporaryRedirect(
-			"/oauth/authenticate?"
-			+ urllib.parse.urlencode({"next": request.path_qs})
+			(request.cookies.get("millipds-oauth-session"), int(time.time())),
 		)
-	user_id = row[0]
+		.get
+	)
+	if user_id is None:
+		# no active oauth cookie session
+		raise web.HTTPTemporaryRedirect(
+			"/oauth/authenticate?"
+			+ urllib.parse.urlencode(
+				{
+					"login_hint": login_hint,
+					"next": request.path_qs,
+				}
+			)
+		)
+	return user_id
 
-	# if we reached here, either there was an existing session, or the user
-	# just created a new one and got redirected back again
+
+# this is where a client will redirect to during the auth flow.
+# they'll see a webpage asking them to login
+@routes.get("/oauth/authorize")
+@routes.post(
+	"/oauth/authorize"
+)  # we might get here via POST, if the user just logged in, OR if the user just granted some new scopes
+async def oauth_authorize_get(request: web.Request):
+	db = get_db(request)
 
 	client_id_param = request.query.get("client_id")
-	request_uri_param = request.query.get("request_uri")
 
-	# retreive the PAR we stashed earlier
-	row = db.con.execute(
-		"""
-			SELECT value FROM oauth_par
-			WHERE uri=? AND expires_at>?
-		""",
-		(request_uri_param, now),
-	).fetchone()
-	if row is None:
-		return web.Response(
-			text=html_templates.error_page(
-				"bad request_uri parameter. it should've been set by the client that sent you here."
-			),
-			content_type="text/html",
-			headers=WEBUI_HEADERS,
-		)
-	authorization_request = cbrrr.decode_dag_cbor(row[0])
+	authorization_request = get_auth_request(request)
 	logger.info(authorization_request)
+
+	login_hint = authorization_request.get("login_hint", "")
+
+	user_id = get_or_initiate_oauth_session(request, login_hint)
+	# if we reached here, either there was an existing session, or the user
+	# just created a new one and got redirected back again
 
 	# XXX: why is the client_id sent in the request params in the first place anyway? seems like redundant information
 	if (
 		not client_id_param
 		or authorization_request.get("client_id") != client_id_param
 	):
-		return web.Response(
-			text=html_templates.error_page(
-				"client_id in URL does not match authorization request."
-			),
-			content_type="text/html",
-			headers=WEBUI_HEADERS,
+		raise pretty_error_page(
+			"client_id in URL does not match authorization request."
 		)
 
+	# fetch the client metadata doc
 	try:
-		client_id_doc = await util.get_json_with_limit(
+		client_metadata = await util.get_json_with_limit(
 			get_client(request), client_id_param, 0x10000
 		)  # 64k limit
-		logger.info(client_id_doc)
-		if not isinstance(client_id_doc, dict):
-			raise TypeError("expected client_id_doc to be dict")
+		logger.info(client_metadata)
+		if not isinstance(client_metadata, dict):
+			raise TypeError("expected client_metadata to be dict")
 	except:
-		return web.Response(
-			text=html_templates.error_page(
-				"client_id document retrieval failed."
-			),
-			content_type="text/html",
-			headers=WEBUI_HEADERS,
-		)
+		raise pretty_error_page("client_id document retrieval failed.")
 
-	if client_id_doc.get("client_id") != client_id_param:
-		return web.Response(
-			text=html_templates.error_page(
-				"client_id document does not contain its own client_id"
-			),
-			content_type="text/html",
-			headers=WEBUI_HEADERS,
+	if client_metadata.get("client_id") != client_id_param:
+		raise pretty_error_page(
+			"client_id document does not contain its own client_id"
 		)
 
 	did, handle = db.con.execute(
@@ -216,53 +241,56 @@ async def oauth_authorize_get(request: web.Request):
 	# TODO: check id hint in auth request matches!
 
 	scopes = set(authorization_request.get("scope", "").split(" "))
+
+	# TODO: check if someone just POSTed some more grants
+	if request.method == "POST":
+		form = await request.post()
+		logging.info(form)
+
 	# TODO: look at the requested scopes, see if the user already granted them,
 	# display UI as appropriate
 
-	return web.Response(
-		text=html_templates.authz_page(
-			handle=handle, client_id=client_id_param, scopes=list(scopes)
-		),
-		content_type="text/html",
-		headers=WEBUI_HEADERS,
-	)
-
-
-@routes.post("/oauth/authorize")
-async def oauth_authorize_post(request: web.Request):
-	now = int(time.time())
-	db = get_db(request)
-
-	# TODO: don't duplicate code between here and the GET handler
-	session_token = request.cookies.get("millipds-oauth-session")
-	row = db.con.execute(
-		"""
-			SELECT user_id FROM oauth_session_cookie
-			WHERE token=? AND expires_at>?
-		""",
-		(session_token, now),
-	).fetchone()
-	if row is None:
-		# no active oauth cookie session
-		# this should be pretty rare - session expired between the initial GET and the form submission
-		return web.HTTPTemporaryRedirect(
-			"/oauth/authenticate?"
-			+ urllib.parse.urlencode({"next": request.path_qs})
+	if "we need more scopes" and False:
+		return web.Response(
+			text=html_templates.authz_page(
+				handle=handle,
+				client_id=client_id_param,
+				scopes=list(scopes),
+				redirect_uri=authorization_request["redirect_uri"],
+			),
+			content_type="text/html",
+			headers=WEBUI_HEADERS,
 		)
 
-	# TODO: redirect back to app?
-	return web.Response(
-		text="TODO",
-		content_type="text/html",
-		headers=WEBUI_HEADERS,
-	)
+	# else, everything checks out, redirect the user back to the app!
+
+	SEPARATORS = {"fragment": "#", "query": "?"}
+	if separator := SEPARATORS.get(authorization_request["response_mode"]):
+		return web.Response(
+			text=html_templates.redirect(
+				authorization_request["redirect_uri"]
+				+ separator
+				+ urllib.parse.urlencode(
+					{
+						"iss": get_db(request).config["pds_pfx"],
+						"state": authorization_request["state"],
+						"code": "blah",
+					}
+				)
+			),
+			content_type="text/html",
+			headers=WEBUI_HEADERS,
+		)
+	# TODO: support form_post?
+	else:
+		return pretty_error_page("unsupported response_mode")
 
 
 @routes.get("/oauth/authenticate")
 async def oauth_authenticate_get(request: web.Request):
 	return web.Response(
 		text=html_templates.authn_page(
-			identifier_hint="todo.invalid"
+			identifier_hint=request.query.get("login_hint", "")
 		),  # this includes a login form that POSTs to the same endpoint
 		content_type="text/html",
 		headers=WEBUI_HEADERS,
@@ -272,7 +300,7 @@ async def oauth_authenticate_get(request: web.Request):
 @routes.post("/oauth/authenticate")
 async def oauth_authenticate_post(request: web.Request):
 	form = await request.post()
-	logging.info(form)
+	logger.info(form)
 
 	db = get_db(request)
 	form_identifier = form.get("identifier", "")
@@ -303,11 +331,12 @@ async def oauth_authenticate_post(request: web.Request):
 		# we can't use a 301/302 redirect because we need to produce a GET
 		next = request.query.get("next", "")
 		# TODO: !!!important!!! assert next is a relative URL, or absolutify it somehow
-		res = web.Response(
+		"""res = web.Response(
 			text=html_templates.redirect(next),
 			content_type="text/html",
 			headers=WEBUI_HEADERS,
-		)
+		)"""
+		res = web.HTTPTemporaryRedirect(next)
 		res.set_cookie(
 			name="millipds-oauth-session",
 			value=session_token,

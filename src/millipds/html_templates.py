@@ -8,7 +8,7 @@ to make this source look nice
 honestly though the amount of raw-html string interpolation in here is a bit scary
 """
 
-from typing import List
+from typing import List, Optional
 from html import escape
 
 html = str
@@ -60,7 +60,7 @@ AUTH_PANEL_HEAD: html = """\
 				color: #fff;
 				/*border: 0.1px solid #888;*/
 				border-style: none;
-				/*border-radius: 4px;*/
+				border-radius: 0;
 			}
 
 			input[type="submit"] {
@@ -155,7 +155,7 @@ AUTH_PANEL_TAIL: html = """
 """
 
 
-def authn_page(identifier_hint, error_msg=None) -> str:
+def authn_page(identifier_hint: str, error_msg: Optional[str] = None) -> str:
 	authn_body: html = f"""\
 		<h3>put yer creds in the box.</h3>
 		<form action="" method="POST">
@@ -181,7 +181,9 @@ SCOPE_DESCRIPTIONS = {
 }
 
 
-def authz_page(handle: str, client_id: str, scopes: List[str]) -> str:
+def authz_page(
+	handle: str, client_id: str, scopes: List[str], redirect_uri: str
+) -> str:
 	authz_body: html = f"""\
 		<p>Hello, <code>{escape(handle)}</code></p>
 		<h3>application <code>{escape(client_id)}</code> wants permission to:</h3>
@@ -195,6 +197,7 @@ def authz_page(handle: str, client_id: str, scopes: List[str]) -> str:
 		<form action="" method="POST">
 			<input type="hidden" name="client_id" value="{escape(client_id)}">
 			<input type="hidden" name="scope" value="{escape(' '.join(scopes))}">
+			<input type="hidden" name="redirect_uri" value="{escape(redirect_uri)}">
 			<input type="submit" value="authorize">
 		</form>"""
 
@@ -234,8 +237,8 @@ if __name__ == "__main__":
 		authn.write(authn_page())
 	with open("authz_test.html", "w") as authz:
 		authz.write(authz_page())
-	with open("error_test.html", "w") as authz:
-		authz.write(
+	with open("error_test.html", "w") as error:
+		error.write(
 			error_page(
 				"oh no something bad happened. you probably used the wrong password. idiot."
 			)

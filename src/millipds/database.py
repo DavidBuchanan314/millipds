@@ -290,6 +290,7 @@ class Database:
 		)
 
 		# has user granted a particular scope to a particular app?
+		# nb: there's one row for each individual scope i.e. "scope" should not contain spaces.
 		self.con.execute(
 			"""
 			CREATE TABLE oauth_grants(

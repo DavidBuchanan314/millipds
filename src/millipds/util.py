@@ -13,6 +13,7 @@ from typing import (
 	Dict,
 	Hashable,
 	Type,
+	TypeVar,
 )
 from weakref import WeakValueDictionary
 
@@ -166,3 +167,16 @@ async def get_json_with_limit(session: ClientSession, url: str, limit: int):
 		except asyncio.IncompleteReadError as e:
 			# this is actually the happy path
 			return json.loads(e.partial)
+
+
+class NoneError(TypeError):
+	pass
+
+
+T = TypeVar("T")
+
+
+def definitely(obj: Optional[T]) -> T:
+	if obj is None:
+		raise NoneError("Expected something, but found None")
+	return obj
