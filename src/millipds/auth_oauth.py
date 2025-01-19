@@ -8,8 +8,10 @@ import time
 import hashlib
 import base64
 import urllib.parse
+import uuid
 
 from aiohttp import web
+from cryptography.fernet import Fernet
 
 from . import html_templates
 from .app_util import *
@@ -25,6 +27,10 @@ routes = web.RouteTableDef()
 WEBUI_HEADERS = {
 	"Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
 }
+
+# used to AEAD-encrypt oauth `code` data.
+# ciphertexts have short TTL so the key does not need to persist.
+code_fernet = Fernet(Fernet.generate_key())
 
 
 # example: https://shiitake.us-east.host.bsky.network/.well-known/oauth-protected-resource
@@ -196,9 +202,9 @@ def get_or_initiate_oauth_session(request: web.Request, login_hint: str) -> int:
 # this is where a client will redirect to during the auth flow.
 # they'll see a webpage asking them to login
 @routes.get("/oauth/authorize")
-@routes.post(
-	"/oauth/authorize"
-)  # we might get here via POST, if the user just logged in, OR if the user just granted some new scopes
+# @routes.post(
+# "/oauth/authorize"
+# )  # we might get here via POST, if the user just logged in, OR if the user just granted some new scopes
 async def oauth_authorize_get(request: web.Request):
 	db = get_db(request)
 
@@ -264,24 +270,69 @@ async def oauth_authorize_get(request: web.Request):
 			headers=WEBUI_HEADERS,
 		)
 
-	# else, everything checks out, redirect the user back to the app!
+	# else, everything checks out.
+	# generate the auth tokens, encrypt them into the auth code, and redirect the user back to the app!
+
+	unix_seconds_now = int(time.time())
+	# use the same jti for both tokens, so revoking one revokes both
+	jti = str(uuid.uuid4())
+	access_jwt = jwt.encode(
+		{
+			"scope": "com.atproto.access",
+			"aud": db.config["pds_did"],
+			"sub": did,
+			"iat": unix_seconds_now,
+			"exp": unix_seconds_now + static_config.ACCESS_EXP,
+			"jti": jti,
+		},
+		db.config["jwt_access_secret"],
+		"HS256",
+	)
+
+	refresh_jwt = jwt.encode(
+		{
+			"scope": "com.atproto.refresh",
+			"aud": db.config["pds_did"],
+			"sub": did,
+			"iat": unix_seconds_now,
+			"exp": unix_seconds_now + static_config.REFRESH_EXP,
+			"jti": jti,
+		},
+		db.config["jwt_access_secret"],
+		"HS256",
+	)
+
+	code = code_fernet.encrypt(
+		cbrrr.encode_dag_cbor(
+			{
+				"code_challenge": authorization_request["code_challenge"],
+				"code_challenge_method": authorization_request[
+					"code_challenge_method"
+				],
+				"token_response": {
+					"access_token": access_jwt,
+					"token_type": "DPoP",
+					"expires_in": static_config.ACCESS_EXP,
+					"refresh_token": refresh_jwt,
+					"scope": authorization_request["scope"],
+					"sub": did,
+				},
+			}
+		)
+	).decode()
 
 	SEPARATORS = {"fragment": "#", "query": "?"}
 	if separator := SEPARATORS.get(authorization_request["response_mode"]):
-		return web.Response(
-			text=html_templates.redirect(
-				authorization_request["redirect_uri"]
-				+ separator
-				+ urllib.parse.urlencode(
-					{
-						"iss": get_db(request).config["pds_pfx"],
-						"state": authorization_request["state"],
-						"code": "blah",
-					}
-				)
-			),
-			content_type="text/html",
-			headers=WEBUI_HEADERS,
+		return web.HTTPSeeOther(
+			authorization_request["redirect_uri"]
+			+ separator
+			+ urllib.parse.urlencode(
+				{
+					"iss": db.config["pds_pfx"],
+					"state": authorization_request["state"],
+					"code": code,
+				}
+			)
 		)
 	# TODO: support form_post?
 	else:
@@ -338,7 +389,7 @@ async def oauth_authenticate_post(request: web.Request):
 			content_type="text/html",
 			headers=WEBUI_HEADERS,
 		)"""
-		res = web.HTTPTemporaryRedirect(next)
+		res = web.HTTPSeeOther(next)
 		res.set_cookie(
 			name="millipds-oauth-session",
 			value=session_token,
@@ -346,7 +397,7 @@ async def oauth_authenticate_post(request: web.Request):
 			path="/oauth/authorize",  # the only page that needs to see it
 			secure=True,  # prevents token from leaking over plaintext channels
 			httponly=True,  # prevents XSS from being able to steal tokens
-			samesite="Strict",  # mitigates CSRF
+			samesite="Lax",  # XXX: CSRF!!!
 		)
 		return res
 	except:
@@ -430,43 +481,37 @@ async def oauth_token_post(request: web.Request):
 	form: dict = await request.json()
 	logger.info(form)
 
-	# `code` will be an encrypted JWT - decrypt it, pull out the code_challenge, verify it
+	# TODO: other verify parts of the request!!!!
 
-	# expected_code_challenge = base64.urlsafe_b64encode(hashlib.sha256(form["code_verifier"].encode("ascii")).digest()).rstrip(b"=").decode()
-
-	return web.json_response(
-		{
-			"access_token": "MTQ0NjJkZmQ5OTM2NDE1ZTZjNGZmZjI3",
-			"token_type": "DPoP",
-			"expires_in": 3600,
-			"refresh_token": "IwOGYzYTlmM2YxOTQ5MGE3YmNmMDFkNTVk",
-			"scope": "atproto transition:generic",
-			"sub": "did:plc:bwxddkvw5c6pkkntbtp2j4lx",
-		}
+	code_payload = cbrrr.decode_dag_cbor(
+		code_fernet.decrypt(token=form["code"], ttl=60)
 	)
+	logger.info(code_payload)
+
+	if code_payload["code_challenge_method"] != "S256":
+		return web.HTTPBadRequest(text="bad code_challenge_method")
+
+	expected_code_challenge = (
+		base64.urlsafe_b64encode(
+			hashlib.sha256(form["code_verifier"].encode("ascii")).digest()
+		)
+		.rstrip(b"=")
+		.decode()
+	)
+	if expected_code_challenge != code_payload["code_challenge"]:
+		return web.HTTPBadRequest(text="bad code_verifier")
+
+	return web.json_response(code_payload["token_response"])
 
 	"""
-	auth request from client:
-	{
-	'scope': 'atproto transition:generic',
-	'state': '5akVXvDXuRisJyAVE2jBMw',
-	'display': 'page',
-	'client_id': 'https://pdsls.dev/client-metadata.json',
-	'login_hint': 'local.dev.retr0.id',
-	'redirect_uri': 'https://pdsls.dev/',
-	'response_mode': 'fragment',
-	'response_type': 'code',
-	'code_challenge': 'c2R_cMGcIfTWcm-X2nQpofu15abQqE_5zKQCO3DJkrk',
-	'code_challenge_method': 'S256'
-	}
-
 	token request:
 	{
 	'grant_type': 'authorization_code',
 	'redirect_uri': 'https://pdsls.dev/',
 	'code': 'blah',
 	'code_verifier': 'E213vPOYmfV_IoMc0M8f5i3DMTWcAkhvYQ8pS50Ym0g',
-	'client_id': 'https://pdsls.dev/client-metadata.json'}
+	'client_id': 'https://pdsls.dev/client-metadata.json'
+	}
 	"""
 
 
