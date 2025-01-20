@@ -158,8 +158,10 @@ def atproto_json_http_error(
 	)
 
 
-async def get_json_with_limit(session: ClientSession, url: str, limit: int):
-	async with session.get(url) as r:
+async def get_json_with_limit(
+	session: ClientSession, url: str, limit: int, allow_redirects: bool = True
+):
+	async with session.get(url, allow_redirects=allow_redirects) as r:
 		r.raise_for_status()
 		try:
 			await r.content.readexactly(limit)

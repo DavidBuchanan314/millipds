@@ -233,7 +233,7 @@ async def oauth_authorize_get(request: web.Request):
 	# fetch the client metadata doc
 	try:
 		client_metadata = await util.get_json_with_limit(
-			get_client(request), client_id_param, 0x10000
+			get_client(request), client_id_param, 0x10000, allow_redirects=False
 		)  # 64k limit
 		logger.info(client_metadata)
 		if not isinstance(client_metadata, dict):
