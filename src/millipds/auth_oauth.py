@@ -416,71 +416,17 @@ async def oauth_authenticate_post(request: web.Request):
 		)
 
 
-DPOP_NONCE = "placeholder_nonce_value"  # this needs to get rotated! (does it matter that it's global?)
-
-
-def dpop_protected(handler):
+def dpop_required(handler):
 	async def dpop_handler(request: web.Request):
-		dpop = request.headers.get("dpop")
-		if dpop is None:
+		if request.get("verified_dpop_jkt") is None:
 			raise web.HTTPBadRequest(text="missing dpop")
-
-		# we're not verifying yet, we just want to pull out the jwk from the header
-		unverified = jwt.api_jwt.decode_complete(
-			dpop, options={"verify_signature": False}
-		)
-		jwk_data = unverified["header"]["jwk"]
-		jwk = jwt.PyJWK.from_dict(jwk_data)
-		jkt = crypto.jwk_thumbprint(jwk)
-
-		# actual signature verification happens here:
-		decoded: dict = jwt.decode(dpop, key=jwk)
-
-		logger.info(decoded)
-		logger.info(request.url)
-
-		# TODO: verify iat?, iss?
-
-		if request.method != decoded["htm"]:
-			raise web.HTTPBadRequest(text="dpop: bad htm")
-
-		if str(request.url) != decoded["htu"]:
-			logger.info(f"{request.url!r} != {decoded['htu']!r}")
-			raise web.HTTPBadRequest(
-				text="dpop: bad htu (if your application is reverse-proxied, make sure the Host header is getting set properly)"
-			)
-
-		if decoded.get("nonce") != DPOP_NONCE:
-			raise web.HTTPBadRequest(
-				body=json.dumps(
-					{
-						"error": "use_dpop_nonce",
-						"error_description": "Authorization server requires nonce in DPoP proof",
-					}
-				),
-				headers={
-					"DPoP-Nonce": DPOP_NONCE,
-					"Content-Type": "application/json",
-				},  # if we don't put it here, the client will never see it
-			)
-
-		request["dpop_jkt"] = jkt
-		request["dpop_jti"] = decoded[
-			"jti"
-		]  # XXX: should replay prevention happen here?
-		request["dpop_iss"] = decoded["iss"]
-
-		res: web.Response = await handler(request)
-		res.headers["DPoP-Nonce"] = (
-			DPOP_NONCE  # TODO: make sure this always gets set even under error conditions?
-		)
-		return res
+		return await handler(request)
 
 	return dpop_handler
 
 
 @routes.post("/oauth/token")
-@dpop_protected
+@dpop_required
 async def oauth_token_post(request: web.Request):
 	form: dict = await request.json()
 	logger.info(form)
@@ -492,7 +438,7 @@ async def oauth_token_post(request: web.Request):
 	)
 	logger.info(code_payload)
 
-	if request.get("dpop_jkt") != code_payload["dpop_jkt"]:
+	if request["verified_dpop_jkt"] != code_payload["dpop_jkt"]:
 		return web.HTTPBadRequest(text="dpop required")
 
 	if code_payload["code_challenge_method"] != "S256":
@@ -523,7 +469,7 @@ async def oauth_token_post(request: web.Request):
 
 
 @routes.post("/oauth/revoke")
-@dpop_protected
+@dpop_required
 async def oauth_revoke_post(request: web.Request):
 	# TODO!!!!
 	logger.error("oauth token revocation not implemented!!!!")
@@ -531,7 +477,7 @@ async def oauth_revoke_post(request: web.Request):
 
 
 @routes.post("/oauth/par")
-@dpop_protected
+@dpop_required
 async def oauth_pushed_authorization_request(request: web.Request):
 	# NOTE: rfc9126 says this is posted as form data, but this is atproto-flavoured oauth
 	request_json = await request.json()
@@ -552,7 +498,7 @@ async def oauth_pushed_authorization_request(request: web.Request):
 		""",
 		(
 			par_uri,
-			request["dpop_jkt"],
+			request["verified_dpop_jkt"],
 			cbrrr.encode_dag_cbor(request_json),
 			now,
 			now + static_config.OAUTH_PAR_EXP,
@@ -565,3 +511,63 @@ async def oauth_pushed_authorization_request(request: web.Request):
 			"expires_in": static_config.OAUTH_PAR_EXP,
 		}
 	)
+
+
+DPOP_NONCE = "placeholder_nonce_value"  # this needs to get rotated! (does it matter that it's global?)
+
+
+@web.middleware
+async def dpop_middlware(request: web.Request, handler):
+	# passthru any non-dpop requests
+	if (dpop := request.headers.get("dpop")) is None:
+		return await handler(request)
+
+	# we're not verifying yet, we just want to pull out the jwk from the header
+	unverified = jwt.api_jwt.decode_complete(
+		dpop, options={"verify_signature": False}
+	)
+	jwk_data = unverified["header"]["jwk"]
+	jwk = jwt.PyJWK.from_dict(jwk_data)
+	jkt = crypto.jwk_thumbprint(jwk)
+
+	# actual signature verification happens here:
+	decoded: dict = jwt.decode(dpop, key=jwk)
+
+	logger.info(decoded)
+	logger.info(request.url)
+
+	# TODO: verify iat?
+
+	if request.method != decoded["htm"]:
+		raise web.HTTPBadRequest(text="dpop: bad htm")
+
+	if str(request.url) != decoded["htu"]:
+		logger.info(f"{request.url!r} != {decoded['htu']!r}")
+		raise web.HTTPBadRequest(
+			text="dpop: bad htu (if your application is reverse-proxied, make sure the Host header is getting set properly)"
+		)
+
+	if decoded.get("nonce") != DPOP_NONCE:
+		raise web.HTTPBadRequest(
+			body=json.dumps(
+				{
+					"error": "use_dpop_nonce",
+					"error_description": "Authorization server requires nonce in DPoP proof",
+				}
+			),
+			headers={
+				"DPoP-Nonce": DPOP_NONCE,
+				"Content-Type": "application/json",
+			},  # if we don't put it here, the client will never see it
+		)
+
+	# TODO: check for jti reuse!!!
+
+	request["verified_dpop_jkt"] = jkt # certifies that the dpop is valid for this particular jkt
+	request["dpop_jti"] = decoded["jti"]  # do we really need to pass this thru?
+	request["dpop_iss"] = decoded["iss"]
+
+	res: web.Response = await handler(request)
+	# TODO: make sure this always gets set even under error conditions?
+	res.headers["DPoP-Nonce"] = DPOP_NONCE
+	return res

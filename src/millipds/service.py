@@ -11,7 +11,7 @@ import hashlib
 
 import apsw
 import aiohttp
-from aiohttp_middlewares import cors_middleware
+from aiohttp_middlewares import cors_middleware as construct_cors_middleware
 from aiohttp import web
 import jwt
 
@@ -452,7 +452,7 @@ async def server_get_session(request: web.Request):
 def construct_app(
 	routes, db: database.Database, client: aiohttp.ClientSession
 ) -> web.Application:
-	cors = cors_middleware(  # TODO: review and reduce scope - and maybe just /xrpc/*?
+	cors_middleware = construct_cors_middleware(  # TODO: review and reduce scope - and maybe just /xrpc/*?
 		allow_all=True,
 		expose_headers=["*"],
 		allow_headers=["*"],
@@ -467,7 +467,13 @@ def construct_app(
 
 	did_resolver = DIDResolver(client, static_config.PLC_DIRECTORY_HOST)
 
-	app = web.Application(middlewares=[cors, atproto_service_proxy_middleware])
+	app = web.Application(
+		middlewares=[
+			cors_middleware,
+			auth_oauth.dpop_middlware,
+			atproto_service_proxy_middleware,
+		]
+	)
 	app[MILLIPDS_DB] = db
 	app[MILLIPDS_AIOHTTP_CLIENT] = client
 	app[MILLIPDS_FIREHOSE_QUEUES] = set()
