@@ -73,9 +73,10 @@ def authenticated(handler):
 			raise web.HTTPUnauthorized(
 				text="authentication required (this may be a bug, I'm erring on the side of caution for now)"
 			)
-		if not auth.startswith("Bearer "):
+		authtype, _, token = auth.partition(" ")
+		authtype = authtype.lower()
+		if authtype not in ["bearer", "dpop"]:
 			raise web.HTTPUnauthorized(text="invalid auth type")
-		token = auth.removeprefix("Bearer ")
 
 		# validate it TODO: this needs rigorous testing, I'm not 100% sure I'm
 		# verifying all the things that need verifying
@@ -85,6 +86,10 @@ def authenticated(handler):
 			token, options={"verify_signature": False}
 		)
 		# logger.info(unverified)
+		if authtype == "dpop":
+			# TODO: dpop stuff!!!!!
+			pass
+
 		if unverified["header"]["alg"] == "HS256":  # symmetric secret
 			request["authed_did"] = verify_symmetric_token(
 				request, token, "com.atproto.access"
