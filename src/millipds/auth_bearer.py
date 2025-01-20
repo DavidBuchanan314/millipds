@@ -74,7 +74,8 @@ def authenticated(handler):
 				text="authentication required (this may be a bug, I'm erring on the side of caution for now)"
 			)
 		authtype, _, token = auth.partition(" ")
-		if authtype not in ["Bearer", "DPoP"]:
+		authtype = authtype.lower()
+		if authtype not in ["bearer", "dpop"]:
 			raise web.HTTPUnauthorized(text="invalid auth type")
 
 		# validate it TODO: this needs rigorous testing, I'm not 100% sure I'm
@@ -85,7 +86,7 @@ def authenticated(handler):
 			token, options={"verify_signature": False}
 		)
 		# logger.info(unverified)
-		if authtype == "DPoP":
+		if authtype == "dpop":
 			# TODO: dpop stuff!!!!!
 			pass
 

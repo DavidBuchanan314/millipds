@@ -281,7 +281,7 @@ class Database:
 			"""
 			CREATE TABLE oauth_par(
 				uri TEXT PRIMARY KEY NOT NULL,
-				dpop_jwk BLOB NOT NULL,
+				dpop_jkt TEXT NOT NULL,
 				value BLOB NOT NULL,
 				created_at INTEGER NOT NULL,
 				expires_at INTEGER NOT NULL
@@ -297,6 +297,7 @@ class Database:
 				user_id INTEGER NOT NULL,
 				client_id TEXT NOT NULL,
 				scope TEXT NOT NULL,
+				granted_at INTEGER NOT NULL,
 				FOREIGN KEY (user_id) REFERENCES user(id),
 				PRIMARY KEY (user_id, client_id, scope)
 			) STRICT, WITHOUT ROWID

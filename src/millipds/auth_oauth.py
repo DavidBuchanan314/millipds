@@ -1,3 +1,4 @@
+from typing import Tuple
 import logging
 
 import jwt
@@ -18,6 +19,7 @@ from .app_util import *
 from . import static_config
 from . import util
 from .util import definitely, NoneError
+from . import crypto
 
 logger = logging.getLogger(__name__)
 
@@ -143,17 +145,18 @@ def pretty_error_page(msg: str) -> web.HTTPBadRequest:
 	)
 
 
-def get_auth_request(request: web.Request) -> dict:
+def get_auth_request(request: web.Request) -> Tuple[dict, bytes]:
 	"""
 	pull a previously PAR'd auth request from db, and check it isn't expired.
 	reads request_uri query parameter.
+	Also returns the DPoP jwk thumbprint it was created with.
 	"""
 
 	try:
-		value, expires_at = definitely(
+		value, dpop_jkt, expires_at = definitely(
 			get_db(request)
 			.con.execute(
-				"SELECT value, expires_at FROM oauth_par WHERE uri=?",
+				"SELECT value, dpop_jkt, expires_at FROM oauth_par WHERE uri=?",
 				(request.query.get("request_uri"),),
 			)
 			.fetchone()
@@ -165,7 +168,7 @@ def get_auth_request(request: web.Request) -> dict:
 	if expires_at < time.time():
 		raise pretty_error_page("authorization request expired. try again?")
 
-	return cbrrr.decode_dag_cbor(value)
+	return cbrrr.decode_dag_cbor(value), dpop_jkt
 
 
 def get_or_initiate_oauth_session(request: web.Request, login_hint: str) -> int:
@@ -210,7 +213,7 @@ async def oauth_authorize_get(request: web.Request):
 
 	client_id_param = request.query.get("client_id")
 
-	authorization_request = get_auth_request(request)
+	authorization_request, dpop_jkt = get_auth_request(request)
 	logger.info(authorization_request)
 
 	login_hint = authorization_request.get("login_hint", "")
@@ -273,30 +276,31 @@ async def oauth_authorize_get(request: web.Request):
 	# else, everything checks out.
 	# generate the auth tokens, encrypt them into the auth code, and redirect the user back to the app!
 
-	unix_seconds_now = int(time.time())
 	# use the same jti for both tokens, so revoking one revokes both
-	jti = str(uuid.uuid4())
+	payload_common = {
+		"aud": db.config["pds_did"],
+		"sub": did,
+		"iat": int(time.time()),
+		"jti": str(uuid.uuid4()),
+		"cnf": {
+			"jkt": dpop_jkt,
+		},
+	}
 	access_jwt = jwt.encode(
-		{
-			"scope": "com.atproto.access",
-			"aud": db.config["pds_did"],
-			"sub": did,
-			"iat": unix_seconds_now,
-			"exp": unix_seconds_now + static_config.ACCESS_EXP,
-			"jti": jti,
+		payload_common
+		| {
+			"scope": authorization_request["scope"],
+			"exp": payload_common["iat"] + static_config.ACCESS_EXP,
 		},
 		db.config["jwt_access_secret"],
 		"HS256",
 	)
 
 	refresh_jwt = jwt.encode(
-		{
-			"scope": "com.atproto.refresh",
-			"aud": db.config["pds_did"],
-			"sub": did,
-			"iat": unix_seconds_now,
-			"exp": unix_seconds_now + static_config.REFRESH_EXP,
-			"jti": jti,
+		payload_common
+		| {
+			"scope": "TODO make refresh work",
+			"exp": payload_common["iat"] + static_config.REFRESH_EXP,
 		},
 		db.config["jwt_access_secret"],
 		"HS256",
@@ -309,6 +313,7 @@ async def oauth_authorize_get(request: web.Request):
 				"code_challenge_method": authorization_request[
 					"code_challenge_method"
 				],
+				"dpop_jkt": dpop_jkt,
 				"token_response": {
 					"access_token": access_jwt,
 					"token_type": "DPoP",
@@ -426,6 +431,7 @@ def dpop_protected(handler):
 		)
 		jwk_data = unverified["header"]["jwk"]
 		jwk = jwt.PyJWK.from_dict(jwk_data)
+		jkt = crypto.jwk_thumbprint(jwk)
 
 		# actual signature verification happens here:
 		decoded: dict = jwt.decode(dpop, key=jwk)
@@ -458,9 +464,7 @@ def dpop_protected(handler):
 				},  # if we don't put it here, the client will never see it
 			)
 
-		request["dpop_jwk"] = cbrrr.encode_dag_cbor(
-			jwk_data
-		)  # for easy comparison in db etc.
+		request["dpop_jkt"] = jkt
 		request["dpop_jti"] = decoded[
 			"jti"
 		]  # XXX: should replay prevention happen here?
@@ -487,6 +491,9 @@ async def oauth_token_post(request: web.Request):
 		code_fernet.decrypt(token=form["code"], ttl=60)
 	)
 	logger.info(code_payload)
+
+	if request.get("dpop_jkt") != code_payload["dpop_jkt"]:
+		return web.HTTPBadRequest(text="dpop required")
 
 	if code_payload["code_challenge_method"] != "S256":
 		return web.HTTPBadRequest(text="bad code_challenge_method")
@@ -540,12 +547,12 @@ async def oauth_pushed_authorization_request(request: web.Request):
 	get_db(request).con.execute(
 		"""
 			INSERT INTO oauth_par (
-				uri, dpop_jwk, value, created_at, expires_at
+				uri, dpop_jkt, value, created_at, expires_at
 			) VALUES (?, ?, ?, ?, ?)
 		""",
 		(
 			par_uri,
-			request["dpop_jwk"],
+			request["dpop_jkt"],
 			cbrrr.encode_dag_cbor(request_json),
 			now,
 			now + static_config.OAUTH_PAR_EXP,
