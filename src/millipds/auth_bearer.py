@@ -170,7 +170,8 @@ async def auth_middleware(request: web.Request, handler):
 		if revoked:
 			raise web.HTTPUnauthorized(text="revoked token")
 
-		request_lxm = request.path.rpartition("/")[2].partition("?")[0]
+		# note: request.path does not include the query string
+		request_lxm = request.path.rpartition("/")[2]
 		if request_lxm != payload.get("lxm"):
 			raise web.HTTPUnauthorized(text="invalid jwt: bad lxm")
 
