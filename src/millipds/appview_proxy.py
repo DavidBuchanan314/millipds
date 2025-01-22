@@ -46,7 +46,8 @@ async def service_proxy(request: web.Request, service: Optional[str] = None):
 		service_route = db.config["bsky_appview_pfx"]
 
 	auth_headers = {
-		"Authorization": "Bearer " + build_service_auth_token(request, service_did, lxm, 60)
+		"Authorization": "Bearer "
+		+ build_service_auth_token(request, service_did, lxm, 60)
 	}
 	if request.method == "GET":
 		async with get_client(request).get(

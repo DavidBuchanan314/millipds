@@ -25,7 +25,11 @@ from . import atproto_repo
 from . import crypto
 from . import util
 from .appview_proxy import service_proxy
-from .auth_bearer import auth_required, build_service_auth_token, auth_middleware
+from .auth_bearer import (
+	auth_required,
+	build_service_auth_token,
+	auth_middleware,
+)
 from .app_util import *
 from .did import DIDResolver
 
@@ -209,7 +213,7 @@ def session_info(request: web.Request) -> dict:
 		"did": request["authed_did"],
 		# we specify a fake email and claim it's verified, because otherwise
 		# bsky.app would nag us to verify it
-		#"email": "tfw_no@email.invalid",
+		# "email": "tfw_no@email.invalid",
 		"emailConfirmed": True,
 		# "didDoc": {}, # iiuc this is only used for entryway usecase?
 	}
@@ -330,9 +334,7 @@ async def server_get_service_auth(request: web.Request):
 	# TODO: strict validation of aud and lxm?
 
 	return web.json_response(
-		{
-			"token": build_service_auth_token(request, aud, lxm, duration)
-		}
+		{"token": build_service_auth_token(request, aud, lxm, duration)}
 	)
 
 

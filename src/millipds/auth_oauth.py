@@ -548,18 +548,13 @@ async def dpop_middlware(request: web.Request, handler):
 		)
 
 	if decoded.get("nonce") != DPOP_NONCE:
-		raise web.HTTPBadRequest(
-			body=json.dumps(
-				{
-					"error": "use_dpop_nonce",
-					"error_description": "Authorization server requires nonce in DPoP proof",
-				}
-			),
-			headers={
-				"DPoP-Nonce": DPOP_NONCE,
-				"Content-Type": "application/json",
-			},  # if we don't put it here, the client will never see it
+		res = util.atproto_json_http_error(
+			web.HTTPBadRequest,
+			"use_dpop_nonce",
+			"Authorization server requires nonce in DPoP proof",
 		)
+		res.headers["DPoP-Nonce"] = DPOP_NONCE
+		raise res
 
 	# TODO: check for jti reuse!!! (and revoke the one we're using here)
 
