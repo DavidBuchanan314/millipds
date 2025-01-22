@@ -6,7 +6,7 @@ import jwt
 from aiohttp import web
 
 from . import crypto
-from .auth_bearer import auth_required
+from .auth_bearer import auth_required, build_service_auth_token
 from .app_util import *
 
 logger = logging.getLogger(__name__)
@@ -45,20 +45,9 @@ async def service_proxy(request: web.Request, service: Optional[str] = None):
 		service_did = db.config["bsky_appview_did"]
 		service_route = db.config["bsky_appview_pfx"]
 
-	signing_key = db.signing_key_pem_by_did(request["authed_did"])
 	auth_headers = {
-		"Authorization": "Bearer "
-		+ jwt.encode(
-			{
-				"iss": request["authed_did"],
-				"aud": service_did,
-				"lxm": lxm,
-				"exp": int(time.time()) + 5 * 60,  # 5 mins
-			},
-			signing_key,
-			algorithm=crypto.jwt_signature_alg_for_pem(signing_key),
-		)
-	}  # TODO: cache this?
+		"Authorization": "Bearer " + build_service_auth_token(request, service_did, lxm, 60)
+	}
 	if request.method == "GET":
 		async with get_client(request).get(
 			service_route + request.path,

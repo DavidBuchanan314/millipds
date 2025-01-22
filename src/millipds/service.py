@@ -25,7 +25,7 @@ from . import atproto_repo
 from . import crypto
 from . import util
 from .appview_proxy import service_proxy
-from .auth_bearer import auth_required, symmetric_token_auth, auth_middleware
+from .auth_bearer import auth_required, build_service_auth_token, auth_middleware
 from .app_util import *
 from .did import DIDResolver
 
@@ -209,7 +209,7 @@ def session_info(request: web.Request) -> dict:
 		"did": request["authed_did"],
 		# we specify a fake email and claim it's verified, because otherwise
 		# bsky.app would nag us to verify it
-		"email": "tfw_no@email.invalid",
+		#"email": "tfw_no@email.invalid",
 		"emailConfirmed": True,
 		# "didDoc": {}, # iiuc this is only used for entryway usecase?
 	}
@@ -307,8 +307,10 @@ async def server_get_service_auth(request: web.Request):
 	lxm = request.query.get("lxm")
 
 	# default to 60s into the future
-	now = int(time.time())
-	exp = int(request.query.get("exp", now + 60))
+	if "exp" in request.query:
+		duration = int(request.query["exp"]) - int(time.time())
+	else:
+		duration = 60
 
 	# lxm is not required by the lexicon but I'm requiring it anyway
 	if not (aud and lxm):
@@ -318,32 +320,18 @@ async def server_get_service_auth(request: web.Request):
 
 	# TODO: if aud is ourselves, special-case and emit a symmetric token?
 
-	max_exp = now + 60 * 30  # 30 mins
-	if exp > max_exp:
+	MAX_SERVICE_AUTH_DURATION = 60 * 30
+	if duration > MAX_SERVICE_AUTH_DURATION:
 		logger.info(
-			f"requested exp too far into the future, truncating to {max_exp}"
+			f"requested exp too far into the future, limiting to {MAX_SERVICE_AUTH_DURATION} seconds"
 		)
-		exp = max_exp
+		duration = MAX_SERVICE_AUTH_DURATION
 
 	# TODO: strict validation of aud and lxm?
 
-	db = get_db(request)
-	signing_key = db.signing_key_pem_by_did(request["authed_did"])
-	assert signing_key is not None
 	return web.json_response(
 		{
-			"token": jwt.encode(
-				{
-					"iss": request["authed_did"],
-					"aud": aud,
-					"lxm": lxm,
-					"exp": exp,
-					"iat": now,
-					"jti": str(uuid.uuid4()),
-				},
-				signing_key,
-				algorithm=crypto.jwt_signature_alg_for_pem(signing_key),
-			)
+			"token": build_service_auth_token(request, aud, lxm, duration)
 		}
 	)
 
@@ -420,7 +408,7 @@ async def identity_update_handle(request: web.Request):
 
 
 @routes.get("/xrpc/com.atproto.server.getSession")
-@auth_required()
+@auth_required({"atproto"})
 async def server_get_session(request: web.Request):
 	return web.json_response(session_info(request))
 

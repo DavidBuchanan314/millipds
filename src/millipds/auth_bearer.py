@@ -1,6 +1,7 @@
 from typing import Set, Tuple
 import logging
-import json
+import uuid
+import time
 
 import jwt
 from aiohttp import web
@@ -57,8 +58,7 @@ def symmetric_token_auth(
 		raise web.HTTPUnauthorized(text="invalid jwt: invalid subject")
 
 	# the tokens we issue via oauth will always have this field
-	jkt = payload.get("cnf", {}).get("jkt")
-	if jkt:
+	if jkt := payload.get("cnf", {}).get("jkt"):
 		if authtype != "dpop":
 			raise web.HTTPUnauthorized(text="dpop is required for this token")
 
@@ -78,6 +78,11 @@ def symmetric_token_auth(
 def auth_required(required_scopes: Set[str] = set(), revoke: bool = False):
 	def decorator(handler):
 		async def wrapper(request: web.Request):
+			if not request.get("authed_did"):
+				raise web.HTTPUnauthorized(
+					text=f"auth required"
+				)
+
 			authed_scopes = request.get("authed_scopes", set())
 			missing_scopes = required_scopes - authed_scopes
 			if missing_scopes:
@@ -171,5 +176,30 @@ async def auth_middleware(request: web.Request, handler):
 
 		# everything checks out
 		request["authed_did"] = did
+		request["authed_scopes"] = set(payload.get("scope", "atproto").split(" "))
 
 	return await handler(request)
+
+
+# used for both service proxying, and getServiceAuth
+def build_service_auth_token(request: web.Request, aud: str, lxm: str, duration: int) -> str:
+	if lxm.startswith("chat.bsky."):
+		if "transition:chat.bsky" not in request["authed_scopes"]:
+			raise web.HTTPUnauthorized(text=f"`transition:chat.bsky` scope required for lxm {lxm}")
+
+	now = int(time.time())
+	signing_key = get_db(request).signing_key_pem_by_did(request["authed_did"])
+	assert signing_key is not None
+	return jwt.encode(
+		{
+			"iss": request["authed_did"],
+			"aud": aud,
+			"lxm": lxm,
+			"exp": now + duration,
+			"iat": now,
+			"jti": str(uuid.uuid4()),
+			"scope": " ".join(request.get("authed_scopes", {}))
+		},
+		signing_key,
+		algorithm=crypto.jwt_signature_alg_for_pem(signing_key),
+	)
