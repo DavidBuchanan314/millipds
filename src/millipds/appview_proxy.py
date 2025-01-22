@@ -6,16 +6,18 @@ import jwt
 from aiohttp import web
 
 from . import crypto
-from .auth_bearer import authenticated
+from .auth_bearer import auth_required
 from .app_util import *
 
 logger = logging.getLogger(__name__)
 
 
-@authenticated
+@auth_required({"transition:generic"})
 async def service_proxy(request: web.Request, service: Optional[str] = None):
 	"""
 	If `service` is None, default to bsky appview (per details in db config)
+
+	TODO: make sure we're not proxying to ourselves!!!
 	"""
 	lxm = request.path.rpartition("/")[2].partition("?")[0]
 	# TODO: verify valid lexicon method?

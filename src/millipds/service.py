@@ -25,7 +25,7 @@ from . import atproto_repo
 from . import crypto
 from . import util
 from .appview_proxy import service_proxy
-from .auth_bearer import authenticated, verify_symmetric_token
+from .auth_bearer import auth_required, symmetric_token_auth, auth_middleware
 from .app_util import *
 from .did import DIDResolver
 
@@ -144,7 +144,7 @@ async def health(request: web.Request):
 # we should not be implementing bsky-specific logic here!
 # (ideally, a PDS should not be aware of app-specific logic)
 @routes.post("/xrpc/app.bsky.actor.putPreferences")
-@authenticated
+@auth_required({"transition:generic"})
 async def actor_put_preferences(request: web.Request):
 	# NOTE: we don't try to pull out the specific "preferences" field
 	prefs = await request.json()
@@ -158,7 +158,7 @@ async def actor_put_preferences(request: web.Request):
 
 
 @routes.get("/xrpc/app.bsky.actor.getPreferences")
-@authenticated
+@auth_required({"transition:generic"})
 async def actor_get_preferences(request: web.Request):
 	db = get_db(request)
 	row = db.con.execute(
@@ -222,7 +222,7 @@ def generate_session_tokens(request: web.Request) -> dict:
 	jti = str(uuid.uuid4())
 	access_jwt = jwt.encode(
 		{
-			"scope": "com.atproto.access",
+			"scope": "atproto transition:generic transition:chat.bsky",
 			"aud": db.config["pds_did"],
 			"sub": request["authed_did"],
 			"iat": unix_seconds_now,
@@ -286,20 +286,8 @@ async def server_create_session(request: web.Request):
 
 
 @routes.post("/xrpc/com.atproto.server.refreshSession")
+@auth_required({"com.atproto.refresh"}, revoke=True)
 async def server_refresh_session(request: web.Request):
-	auth = request.headers.get("Authorization", "")
-	if not auth.startswith("Bearer "):
-		raise web.HTTPUnauthorized(text="invalid auth type")
-	token = auth.removeprefix("Bearer ")
-	token_payload = verify_symmetric_token(
-		request, token, "com.atproto.refresh"
-	)
-	request["authed_did"] = token_payload["sub"]
-
-	get_db(request).con.execute(
-		"INSERT INTO revoked_token (did, jti, expires_at) VALUES (?, ?, ?)",
-		(token_payload["sub"], token_payload["jti"], token_payload["exp"]),
-	)
 	return web.json_response(
 		session_info(request) | generate_session_tokens(request)
 	)
@@ -307,27 +295,13 @@ async def server_refresh_session(request: web.Request):
 
 # NOTE: deleteSession requires refresh token as auth, not access token
 @routes.post("/xrpc/com.atproto.server.deleteSession")
+@auth_required({"com.atproto.refresh"}, revoke=True)
 async def server_delete_session(request: web.Request):
-	auth = request.headers.get("Authorization", "")
-	if not auth.startswith("Bearer "):
-		raise web.HTTPUnauthorized(text="invalid auth type")
-	token = auth.removeprefix("Bearer ")
-	token_payload = verify_symmetric_token(
-		request, token, "com.atproto.refresh"
-	)
-
-	# because (for now?) we set the same JTI in access tokens and refresh tokens,
-	# revoking one revokes both
-	get_db(request).con.execute(
-		"INSERT INTO revoked_token (did, jti, expires_at) VALUES (?, ?, ?)",
-		(token_payload["sub"], token_payload["jti"], token_payload["exp"]),
-	)
-
 	return web.Response()
 
 
 @routes.get("/xrpc/com.atproto.server.getServiceAuth")
-@authenticated
+@auth_required({"transition:generic"})
 async def server_get_service_auth(request: web.Request):
 	aud = request.query.get("aud")
 	lxm = request.query.get("lxm")
@@ -341,6 +315,8 @@ async def server_get_service_auth(request: web.Request):
 		raise web.HTTPBadRequest(text="missing aud or lxm")
 	if lxm == "com.atproto.server.getServiceAuth":
 		raise web.HTTPBadRequest(text="can't generate auth tokens recursively!")
+
+	# TODO: if aud is ourselves, special-case and emit a symmetric token?
 
 	max_exp = now + 60 * 30  # 30 mins
 	if exp > max_exp:
@@ -373,7 +349,7 @@ async def server_get_service_auth(request: web.Request):
 
 
 @routes.post("/xrpc/com.atproto.identity.updateHandle")
-@authenticated
+@auth_required({"transition:generic"})
 async def identity_update_handle(request: web.Request):
 	req_json: dict = await request.json()
 	handle = req_json.get("handle")
@@ -444,7 +420,7 @@ async def identity_update_handle(request: web.Request):
 
 
 @routes.get("/xrpc/com.atproto.server.getSession")
-@authenticated
+@auth_required()
 async def server_get_session(request: web.Request):
 	return web.json_response(session_info(request))
 
@@ -467,10 +443,12 @@ def construct_app(
 
 	did_resolver = DIDResolver(client, static_config.PLC_DIRECTORY_HOST)
 
+	# the order of the middlewares is important, auth depends on dpop, service proxy depends on auth
 	app = web.Application(
 		middlewares=[
 			cors_middleware,
 			auth_oauth.dpop_middlware,
+			auth_middleware,
 			atproto_service_proxy_middleware,
 		]
 	)

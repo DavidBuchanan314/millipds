@@ -439,7 +439,7 @@ async def oauth_token_post(request: web.Request):
 	logger.info(code_payload)
 
 	if request["verified_dpop_jkt"] != code_payload["dpop_jkt"]:
-		return web.HTTPBadRequest(text="dpop required")
+		return web.HTTPBadRequest(text="dpop mismatch")
 
 	if code_payload["code_challenge_method"] != "S256":
 		return web.HTTPBadRequest(text="bad code_challenge_method")
@@ -561,9 +561,11 @@ async def dpop_middlware(request: web.Request, handler):
 			},  # if we don't put it here, the client will never see it
 		)
 
-	# TODO: check for jti reuse!!!
+	# TODO: check for jti reuse!!! (and revoke the one we're using here)
 
-	request["verified_dpop_jkt"] = jkt # certifies that the dpop is valid for this particular jkt
+	request["verified_dpop_jkt"] = (
+		jkt  # certifies that the dpop is valid for this particular jkt
+	)
 	request["dpop_jti"] = decoded["jti"]  # do we really need to pass this thru?
 	request["dpop_iss"] = decoded["iss"]
 
