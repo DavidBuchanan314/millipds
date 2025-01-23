@@ -46,17 +46,21 @@ def tid_now():  # XXX: this is not strongly guaranteed to be monotonic
 	)
 
 
-def iso_string_now():
+def unix_to_iso_string(timestamp: float | int):
 	"""
-	JavaScript-like timestamp strings
+	Returns JavaScript-like timestamp strings
 	e.g. 2000-01-01T00:00:00.000Z
 	"""
 	return (
-		datetime.datetime.now(tz=datetime.timezone.utc)
-		.replace(tzinfo=None)
-		.isoformat(timespec="milliseconds")
+		datetime.datetime.fromtimestamp(timestamp).isoformat(
+			timespec="milliseconds"
+		)
 		+ "Z"
 	)
+
+
+def iso_string_now():
+	return unix_to_iso_string(time.time())
 
 
 def deep_iter(obj: cbrrr.DagCborTypes) -> Iterator[cbrrr.DagCborTypes]:

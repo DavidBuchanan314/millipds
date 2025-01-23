@@ -20,7 +20,7 @@ from . import static_config
 from . import util
 from .util import definitely, NoneError
 from . import crypto
-from .auth_bearer import symmetric_token_auth
+from .auth_bearer import symmetric_token_auth, auth_required
 
 logger = logging.getLogger(__name__)
 
@@ -598,3 +598,45 @@ async def dpop_middlware(request: web.Request, handler):
 	# TODO: make sure this always gets set even under error conditions?
 	res.headers["DPoP-Nonce"] = DPOP_NONCE
 	return res
+
+
+@routes.get("/xrpc/com.atproto.server.listAppPasswords")
+@auth_required({"transition:generic"})
+async def list_app_passwords(request: web.Request):
+	"""
+	Since millipds does not support app passwords, and bsky.app does not support
+	revoking oauth scopes/sessions, we reuse the app password APIs for the latter
+	"""
+	db = get_db(request)
+	user_id = db.con.execute(
+		"SELECT id FROM user WHERE did=?", (request["authed_did"],)
+	).get
+	return web.json_response(
+		{
+			"passwords": [
+				{
+					"name": json.dumps([client_id, scope]),
+					"createdAt": util.unix_to_iso_string(granted_at),
+				}
+				for client_id, scope, granted_at in db.con.execute(
+					"SELECT client_id, scope, granted_at FROM oauth_grants WHERE user_id=?",
+					(user_id,),
+				).fetchall()
+			]
+		}
+	)
+
+
+@routes.post("/xrpc/com.atproto.server.revokeAppPassword")
+@auth_required({"transition:generic"})
+async def revoke_app_password(request: web.Request):
+	body = await request.json()
+	client_id, scope = json.loads(body["name"])
+	get_db(request).con.execute(
+		"""
+		DELETE FROM oauth_grants WHERE
+		user_id=(SELECT id FROM user WHERE did=?) AND client_id=? AND scope=?
+		""",
+		(request["authed_did"], client_id, scope),
+	)
+	return web.Response()
