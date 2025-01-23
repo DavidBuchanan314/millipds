@@ -248,6 +248,8 @@ class Database:
 
 		# this is only for the tokens *we* issue, dpop jti will be tracked separately
 		# there's no point remembering that an expired token was revoked, and we'll garbage-collect these periodically
+		# note: I'm using did here instead of user_id, this is vaguely inconsistent
+		# with other tables but in practice it should reduce query complexity
 		self.con.execute(
 			"""
 			CREATE TABLE revoked_token(
@@ -255,6 +257,49 @@ class Database:
 				jti TEXT NOT NULL,
 				expires_at INTEGER NOT NULL,
 				PRIMARY KEY (did, jti)
+			) STRICT, WITHOUT ROWID
+			"""
+		)
+
+		# oauth stuff!
+		self.con.execute(
+			"""
+			CREATE TABLE oauth_session_cookie(
+				token TEXT PRIMARY KEY NOT NULL,
+				user_id INTEGER NOT NULL,
+				value BLOB NOT NULL,
+				created_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL,
+				FOREIGN KEY (user_id) REFERENCES user(id)
+			) STRICT, WITHOUT ROWID
+			"""
+		)
+
+		# TODO: unsure if we need to track dpop jwk here?
+		# (if we do, it could just be a hash of the key)
+		self.con.execute(
+			"""
+			CREATE TABLE oauth_par(
+				uri TEXT PRIMARY KEY NOT NULL,
+				dpop_jkt TEXT NOT NULL,
+				value BLOB NOT NULL,
+				created_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL
+			) STRICT, WITHOUT ROWID
+			"""
+		)
+
+		# has user granted a particular scope to a particular app?
+		# nb: there's one row for each individual scope i.e. "scope" should not contain spaces.
+		self.con.execute(
+			"""
+			CREATE TABLE oauth_grants(
+				user_id INTEGER NOT NULL,
+				client_id TEXT NOT NULL,
+				scope TEXT NOT NULL,
+				granted_at INTEGER NOT NULL,
+				FOREIGN KEY (user_id) REFERENCES user(id),
+				PRIMARY KEY (user_id, client_id, scope)
 			) STRICT, WITHOUT ROWID
 			"""
 		)
@@ -373,19 +418,19 @@ class Database:
 
 	def verify_account_login(
 		self, did_or_handle: str, password: str
-	) -> Tuple[str, str]:
+	) -> Tuple[int, str, str]:
 		row = self.con.execute(
-			"SELECT did, handle, pw_hash FROM user WHERE did=? OR handle=?",
+			"SELECT id, did, handle, pw_hash FROM user WHERE did=? OR handle=?",
 			(did_or_handle, did_or_handle),
 		).fetchone()
 		if row is None:
 			raise KeyError("no account found for did")
-		did, handle, pw_hash = row
+		user_id, did, handle, pw_hash = row
 		try:
 			self.pw_hasher.verify(pw_hash, password)
 		except argon2.exceptions.VerifyMismatchError:
 			raise ValueError("invalid password")
-		return did, handle
+		return user_id, did, handle
 
 	def did_by_handle(self, handle: str) -> Optional[str]:
 		row = self.con.execute(
