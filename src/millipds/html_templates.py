@@ -181,9 +181,7 @@ SCOPE_DESCRIPTIONS = {
 }
 
 
-def authz_page(
-	handle: str, client_id: str, scopes: List[str], redirect_uri: str
-) -> str:
+def authz_page(handle: str, client_id: str, scopes: List[str]) -> str:
 	authz_body: html = f"""\
 		<p>Hello, <code>{escape(handle)}</code></p>
 		<h3>application <code>{escape(client_id)}</code> wants permission to:</h3>
@@ -197,7 +195,6 @@ def authz_page(
 		<form action="" method="POST">
 			<input type="hidden" name="client_id" value="{escape(client_id)}">
 			<input type="hidden" name="scope" value="{escape(' '.join(scopes))}">
-			<input type="hidden" name="redirect_uri" value="{escape(redirect_uri)}">
 			<input type="submit" value="authorize">
 		</form>"""
 

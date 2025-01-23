@@ -20,6 +20,7 @@ from . import static_config
 from . import util
 from .util import definitely, NoneError
 from . import crypto
+from .auth_bearer import symmetric_token_auth
 
 logger = logging.getLogger(__name__)
 
@@ -205,9 +206,9 @@ def get_or_initiate_oauth_session(request: web.Request, login_hint: str) -> int:
 # this is where a client will redirect to during the auth flow.
 # they'll see a webpage asking them to login
 @routes.get("/oauth/authorize")
-# @routes.post(
-# "/oauth/authorize"
-# )  # we might get here via POST, if the user just logged in, OR if the user just granted some new scopes
+@routes.post(
+	"/oauth/authorize"
+)  # we might get here via POST, if the user just granted some new scopes
 async def oauth_authorize_get(request: web.Request):
 	db = get_db(request)
 
@@ -246,28 +247,53 @@ async def oauth_authorize_get(request: web.Request):
 			"client_id document does not contain its own client_id"
 		)
 
+	# at this point onwards, `client_id` can be trusted to be correct/consistent
+	client_id = client_id_param
+
 	did, handle = db.con.execute(
 		"SELECT did, handle FROM user WHERE id=?", (user_id,)
 	).fetchone()
 	# TODO: check id hint in auth request matches!
 
-	scopes = set(authorization_request.get("scope", "").split(" "))
+	wanted_scopes = set(authorization_request.get("scope", "").split(" "))
 
-	# TODO: check if someone just POSTed some more grants
+	# check if someone just POSTed some more grants
 	if request.method == "POST":
 		form = await request.post()
 		logging.info(form)
+		freshly_granted_scopes = form["scope"].split(" ")
+		grant_client_id = form["client_id"]
+		# do we really need to put client_id in the form in the first place?
+		if grant_client_id != client_id:
+			raise web.HTTPBadRequest(text="client_id mismatch")
+		grant_time = int(time.time())
+		db.con.executemany(
+			"""
+				INSERT OR IGNORE INTO oauth_grants (
+					user_id, client_id, scope, granted_at
+				) VALUES (?, ?, ?, ?)
+			""",
+			[
+				(user_id, grant_client_id, scope, grant_time)
+				for scope in freshly_granted_scopes
+			],
+		)
 
-	# TODO: look at the requested scopes, see if the user already granted them,
-	# display UI as appropriate
+	already_granted_scopes = set(
+		scope for scope, *_ in
+		db.con.execute(
+			"SELECT scope FROM oauth_grants WHERE user_id=? AND client_id=?",
+			(user_id, client_id),
+		).fetchall()
+	)
+	missing_scopes = wanted_scopes - already_granted_scopes
 
-	if "we need more scopes" and False:
+	if missing_scopes:
+		# TODO: improve the web UI to show the user which scopes were previously granted, if applicable
+		logger.info(f"missing scopes: {missing_scopes}")
 		return web.Response(
 			text=html_templates.authz_page(
-				handle=handle,
-				client_id=client_id_param,
-				scopes=list(scopes),
-				redirect_uri=authorization_request["redirect_uri"],
+				handle=handle, client_id=client_id, scopes=list(wanted_scopes)
 			),
 			content_type="text/html",
 			headers=WEBUI_HEADERS,
@@ -296,10 +322,12 @@ async def oauth_authorize_get(request: web.Request):
 		"HS256",
 	)
 
+	# made-up scope to distinguish the one generated during password auth
 	refresh_jwt = jwt.encode(
 		payload_common
 		| {
-			"scope": "TODO make refresh work",
+			"scope": "com.atproto.refresh:oauth",
+			"refresh_scope": authorization_request["scope"],
 			"exp": payload_common["iat"] + static_config.REFRESH_EXP,
 		},
 		db.config["jwt_access_secret"],
@@ -309,6 +337,7 @@ async def oauth_authorize_get(request: web.Request):
 	code = code_fernet.encrypt(
 		cbrrr.encode_dag_cbor(
 			{
+				"client_id": client_id,
 				"code_challenge": authorization_request["code_challenge"],
 				"code_challenge_method": authorization_request[
 					"code_challenge_method"
@@ -389,11 +418,6 @@ async def oauth_authenticate_post(request: web.Request):
 		# we can't use a 301/302 redirect because we need to produce a GET
 		next = request.query.get("next", "")
 		# TODO: !!!important!!! assert next is a relative URL, or absolutify it somehow
-		"""res = web.Response(
-			text=html_templates.redirect(next),
-			content_type="text/html",
-			headers=WEBUI_HEADERS,
-		)"""
 		res = web.HTTPSeeOther(next)
 		res.set_cookie(
 			name="millipds-oauth-session",
@@ -402,7 +426,7 @@ async def oauth_authenticate_post(request: web.Request):
 			path="/oauth/authorize",  # the only page that needs to see it
 			secure=True,  # prevents token from leaking over plaintext channels
 			httponly=True,  # prevents XSS from being able to steal tokens
-			samesite="Lax",  # XXX: CSRF!!!
+			samesite="Strict",  # XXX: CSRF!!!
 		)
 		return res
 	except:
@@ -431,41 +455,45 @@ async def oauth_token_post(request: web.Request):
 	form: dict = await request.json()
 	logger.info(form)
 
-	# TODO: other verify parts of the request!!!!
+	grant_type = form.get("grant_type")
 
-	code_payload = cbrrr.decode_dag_cbor(
-		code_fernet.decrypt(token=form["code"], ttl=60)
-	)
-	logger.info(code_payload)
-
-	if request["verified_dpop_jkt"] != code_payload["dpop_jkt"]:
-		return web.HTTPBadRequest(text="dpop mismatch")
-
-	if code_payload["code_challenge_method"] != "S256":
-		return web.HTTPBadRequest(text="bad code_challenge_method")
-
-	expected_code_challenge = (
-		base64.urlsafe_b64encode(
-			hashlib.sha256(form["code_verifier"].encode("ascii")).digest()
+	if grant_type == "authorization_code":
+		code_payload = cbrrr.decode_dag_cbor(
+			code_fernet.decrypt(token=form["code"], ttl=60)
 		)
-		.rstrip(b"=")
-		.decode()
-	)
-	if expected_code_challenge != code_payload["code_challenge"]:
-		return web.HTTPBadRequest(text="bad code_verifier")
+		logger.info(code_payload)
 
-	return web.json_response(code_payload["token_response"])
+		# TODO: what do I do with redirect_uri?
 
-	"""
-	token request:
-	{
-	'grant_type': 'authorization_code',
-	'redirect_uri': 'https://pdsls.dev/',
-	'code': 'blah',
-	'code_verifier': 'E213vPOYmfV_IoMc0M8f5i3DMTWcAkhvYQ8pS50Ym0g',
-	'client_id': 'https://pdsls.dev/client-metadata.json'
-	}
-	"""
+		if form.get("client_id") != code_payload["client_id"]:
+			raise web.HTTPBadRequest(text="client_id mismatch")
+
+		if request["verified_dpop_jkt"] != code_payload["dpop_jkt"]:
+			raise web.HTTPBadRequest(text="dpop mismatch")
+
+		if code_payload["code_challenge_method"] != "S256":
+			raise web.HTTPBadRequest(text="bad code_challenge_method")
+
+		expected_code_challenge = (
+			base64.urlsafe_b64encode(
+				hashlib.sha256(form["code_verifier"].encode("ascii")).digest()
+			)
+			.rstrip(b"=")
+			.decode()
+		)
+		if expected_code_challenge != code_payload["code_challenge"]:
+			raise web.HTTPBadRequest(text="bad code_verifier")
+
+		return web.json_response(code_payload["token_response"])
+
+	elif grant_type == "refresh_token":
+		# TODO: check client_id matches?
+		symmetric_token_auth(request, "dpop", form.get("refresh_token"))
+		if "com.atproto.refresh:oauth" not in request["authed_scopes"]:
+			raise web.HTTPBadRequest(text="not a refresh token")
+		# TODO: revoke old token, issue new one...
+	else:
+		raise web.HTTPBadRequest(text="unsupported grant_type")
 
 
 @routes.post("/oauth/revoke")
