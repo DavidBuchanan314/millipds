@@ -74,23 +74,23 @@ async def oauth_authorization_server(request: web.Request):
 			"response_modes_supported": [
 				"query",
 				"fragment",
-			],  # , "form_post"],
+			],  # , "form_post"],  # TODO
 			"grant_types_supported": ["authorization_code", "refresh_token"],
 			"code_challenge_methods_supported": ["S256"],
 			"ui_locales_supported": ["en-US"],
 			"display_values_supported": ["page", "popup", "touch"],
 			"authorization_response_iss_parameter_supported": True,
 			"request_object_signing_alg_values_supported": [
-				"RS256",
-				"RS384",
-				"RS512",
-				"PS256",
-				"PS384",
-				"PS512",
-				"ES256",
-				"ES256K",
-				"ES384",
-				"ES512",
+				# "RS256",
+				# "RS384",
+				# "RS512",
+				# "PS256",
+				# "PS384",
+				# "PS512",
+				# "ES256",
+				# "ES256K",
+				# "ES384",
+				# "ES512",  # TODO
 				"none",
 			],
 			"request_object_encryption_alg_values_supported": [],
@@ -98,25 +98,25 @@ async def oauth_authorization_server(request: web.Request):
 			"request_parameter_supported": True,
 			"request_uri_parameter_supported": True,
 			"require_request_uri_registration": True,
-			"jwks_uri": pfx + "/oauth/jwks",
+			"jwks_uri": pfx + "/oauth/jwks",  # TODO
 			"authorization_endpoint": pfx + "/oauth/authorize",
 			"token_endpoint": pfx + "/oauth/token",
 			"token_endpoint_auth_methods_supported": [
 				"none",
-				"private_key_jwt",
+				# "private_key_jwt", # TODO
 			],
-			"token_endpoint_auth_signing_alg_values_supported": [
-				"RS256",
-				"RS384",
-				"RS512",
-				"PS256",
-				"PS384",
-				"PS512",
-				"ES256",
-				"ES256K",
-				"ES384",
-				"ES512",
-			],
+			# "token_endpoint_auth_signing_alg_values_supported": [
+			# "RS256",
+			# "RS384",
+			# "RS512",
+			# "PS256",
+			# "PS384",
+			# "PS512",
+			# "ES256",
+			# "ES256K",
+			# "ES384",
+			# "ES512",
+			# ], # TODO
 			"revocation_endpoint": pfx + "/oauth/revoke",
 			"introspection_endpoint": pfx + "/oauth/introspect",
 			"pushed_authorization_request_endpoint": pfx + "/oauth/par",
@@ -280,8 +280,8 @@ async def oauth_authorize_get(request: web.Request):
 		)
 
 	already_granted_scopes = set(
-		scope for scope, *_ in
-		db.con.execute(
+		scope
+		for scope, *_ in db.con.execute(
 			"SELECT scope FROM oauth_grants WHERE user_id=? AND client_id=?",
 			(user_id, client_id),
 		).fetchall()
@@ -415,9 +415,11 @@ async def oauth_authenticate_post(request: web.Request):
 				now + static_config.OAUTH_COOKIE_EXP,
 			),
 		)
-		# we can't use a 301/302 redirect because we need to produce a GET
+		# this check could be relaxed, but it *has* to be a relative URL
 		next = request.query.get("next", "")
-		# TODO: !!!important!!! assert next is a relative URL, or absolutify it somehow
+		if not next.startswith("/oauth/"):
+			raise web.HTTPBadRequest(text="unsupported redirect target")
+		# we can't use a 301/302 redirect because we want to produce a GET
 		res = web.HTTPSeeOther(next)
 		res.set_cookie(
 			name="millipds-oauth-session",
