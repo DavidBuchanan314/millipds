@@ -428,7 +428,7 @@ async def oauth_authenticate_post(request: web.Request):
 			path="/oauth/authorize",  # the only page that needs to see it
 			secure=True,  # prevents token from leaking over plaintext channels
 			httponly=True,  # prevents XSS from being able to steal tokens
-			samesite="Strict",  # XXX: CSRF!!!
+			samesite="Lax",  # Partial CSRF mitigation
 		)
 		return res
 	except:
@@ -615,7 +615,7 @@ async def list_app_passwords(request: web.Request):
 		{
 			"passwords": [
 				{
-					"name": json.dumps([client_id, scope]),
+					"name": json.dumps([client_id, scope], indent=4),
 					"createdAt": util.unix_to_iso_string(granted_at),
 				}
 				for client_id, scope, granted_at in db.con.execute(
