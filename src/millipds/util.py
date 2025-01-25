@@ -46,7 +46,7 @@ def tid_now():  # XXX: this is not strongly guaranteed to be monotonic
 	)
 
 
-def unix_to_iso_string(timestamp: float | int):
+def unix_to_iso_string(timestamp: float | int) -> str:
 	"""
 	Returns JavaScript-like timestamp strings
 	e.g. 2000-01-01T00:00:00.000Z
@@ -59,7 +59,7 @@ def unix_to_iso_string(timestamp: float | int):
 	)
 
 
-def iso_string_now():
+def iso_string_now() -> str:
 	return unix_to_iso_string(time.time())
 
 
