@@ -304,6 +304,20 @@ class Database:
 			"""
 		)
 
+		self.con.execute(
+			"""
+			CREATE TABLE dpop_replay(
+				dpop_jti TEXT NOT NULL,
+				nonce_jti TEXT NOT NULL,
+				nonce_expires_at INTEGER NOT NULL,
+				PRIMARY KEY (dpop_jti, nonce_jti)
+			) STRICT, WITHOUT ROWID
+			"""
+		)
+		self.con.execute(
+			"CREATE INDEX dpop_replay_expiry ON dpop_replay(nonce_expires_at)"
+		)
+
 	def update_config(
 		self,
 		pds_pfx: Optional[str] = None,

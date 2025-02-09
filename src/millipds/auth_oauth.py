@@ -543,11 +543,34 @@ async def oauth_pushed_authorization_request(request: web.Request):
 	)
 
 
-DPOP_NONCE = "placeholder_nonce_value"  # this needs to get rotated! (does it matter that it's global?)
+def generate_dpop_nonce(request: web.Request) -> str:
+	# XXX: stop reusing "jwt_access_secret" for like, lots of other things.
+	return jwt.encode(
+		{
+			"jti": str(uuid.uuid4()),
+			"exp": int(time.time()) + static_config.DPOP_NONCE_EXP,
+		},
+		get_db(request).config["jwt_access_secret"] + ":dpop_nonce",
+		"HS256",
+	)
+
+
+def validate_dpop_nonce_and_extract_jti_and_exp(
+	request: web.Request, nonce_jwt: str
+) -> Tuple[str, int]:
+	payload = jwt.decode(
+		nonce_jwt,
+		get_db(request).config["jwt_access_secret"] + ":dpop_nonce",
+		"HS256",
+		options={
+			"require": ["exp"] # pyjwt will verify if present
+		}
+	)
+	return payload["jti"], payload["exp"]
 
 
 @web.middleware
-async def dpop_middlware(request: web.Request, handler):
+async def dpop_middlware(request: web.Request, handler) -> web.Response:
 	# passthru any non-dpop requests
 	if (dpop := request.headers.get("dpop")) is None:
 		return await handler(request)
@@ -577,16 +600,67 @@ async def dpop_middlware(request: web.Request, handler):
 			text="dpop: bad htu (if your application is reverse-proxied, make sure the Host header is getting set properly)"
 		)
 
-	if decoded.get("nonce") != DPOP_NONCE:
+	if "nonce" not in decoded:
 		res = util.atproto_json_http_error(
 			web.HTTPBadRequest,
 			"use_dpop_nonce",
 			"Authorization server requires nonce in DPoP proof",
 		)
-		res.headers["DPoP-Nonce"] = DPOP_NONCE
+		res.headers["DPoP-Nonce"] = generate_dpop_nonce(request)
 		raise res
 
-	# TODO: check for jti reuse!!! (and revoke the one we're using here)
+	try:
+		nonce_jti, nonce_exp = validate_dpop_nonce_and_extract_jti_and_exp(
+			request,
+			decoded["nonce"]
+		)
+	except jwt.ExpiredSignatureError:
+		res = util.atproto_json_http_error(
+			web.HTTPBadRequest,
+			"invalid_dpop_proof",
+			"expired nonce",
+		)
+		res.headers["DPoP-Nonce"] = generate_dpop_nonce(request)
+		raise res
+	except jwt.DecodeError:
+		res = util.atproto_json_http_error(
+			web.HTTPBadRequest,
+			"invalid_dpop_proof",
+			"invalid nonce",
+		)
+		res.headers["DPoP-Nonce"] = generate_dpop_nonce(request)
+		raise res
+
+	db = get_db(request)
+	# note: we don't need to check for nonce expiry in this query because
+	# validate_dpop_nonce_and_extract_jti already checked it
+	is_replay = db.con.execute(
+		"SELECT COUNT(*) FROM dpop_replay WHERE dpop_jti=? AND nonce_jti=?",
+		(decoded["jti"], nonce_jti),
+	).get
+	if is_replay:
+		# TODO: is this the right kind of error?
+		res = util.atproto_json_http_error(
+			web.HTTPBadRequest,
+			"invalid_dpop_proof",
+			"you used that one before?!",
+		)
+		res.headers["DPoP-Nonce"] = generate_dpop_nonce(request)
+		raise res
+
+	# store this one so it can't be replayed later
+	db.con.execute(
+		"""
+		INSERT INTO dpop_replay (dpop_jti, nonce_jti, nonce_expires_at)
+		VALUES (?, ?, ?)
+		""",
+		(decoded["jti"], nonce_jti, nonce_exp),
+	)
+
+	# drop expired nonces from the replay table
+	db.con.execute(
+		"DELETE FROM dpop_replay WHERE nonce_expires_at<?", (int(time.time()),)
+	)
 
 	request["verified_dpop_jkt"] = (
 		jkt  # certifies that the dpop is valid for this particular jkt
@@ -596,7 +670,8 @@ async def dpop_middlware(request: web.Request, handler):
 
 	res: web.Response = await handler(request)
 	# TODO: make sure this always gets set even under error conditions?
-	res.headers["DPoP-Nonce"] = DPOP_NONCE
+	# do we need to try/catch and re-raise or does aiohttp do something like that for us?
+	res.headers["DPoP-Nonce"] = generate_dpop_nonce(request)
 	return res
 
 
