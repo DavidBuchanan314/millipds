@@ -91,7 +91,7 @@ async def oauth_authorization_server(request: web.Request):
 			"grant_types_supported": ["authorization_code", "refresh_token"],
 			"code_challenge_methods_supported": ["S256"],
 			"ui_locales_supported": ["en-US"],
-			"display_values_supported": ["page", "popup", "touch"],
+			"display_values_supported": ["page"],  # TODO: , "popup", "touch"],
 			"authorization_response_iss_parameter_supported": True,
 			"request_object_signing_alg_values_supported": [
 				# "RS256",
