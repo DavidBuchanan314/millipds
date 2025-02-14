@@ -246,7 +246,7 @@ class Database:
 			"""
 		)
 
-		# this is only for the tokens *we* issue, dpop jti will be tracked separately
+		# this is only for the tokens *we* issue, dpop jti is tracked separately
 		# there's no point remembering that an expired token was revoked, and we'll garbage-collect these periodically
 		# note: I'm using did here instead of user_id, this is vaguely inconsistent
 		# with other tables but in practice it should reduce query complexity
@@ -304,6 +304,10 @@ class Database:
 			"""
 		)
 
+		# deciding whether to use rowid here is a bit of a dillemma.
+		# without rowid, the expiry index has to duplicate the primary key columns.
+		# with rowid, sqlite will create an autoindex mapping the primary keys to rowids.
+		# so "without rowid" results in one less table, with the same amount of data duplication.
 		self.con.execute(
 			"""
 			CREATE TABLE dpop_replay(
