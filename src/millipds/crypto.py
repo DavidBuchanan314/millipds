@@ -1,5 +1,9 @@
 from typing import Literal
 import base64
+import json
+import hashlib
+
+import jwt
 
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes
@@ -125,3 +129,40 @@ def plc_sign(privkey: ec.EllipticCurvePrivateKey, op: dict) -> str:
 		raise ValueError("op is already signed!")
 	rawsig = raw_sign(privkey, cbrrr.encode_dag_cbor(op))
 	return base64.urlsafe_b64encode(rawsig).decode().rstrip("=")
+
+
+# in lexicographic order as described in rfc7638
+JWK_REQUIRED_MEMBERS = {
+	"EC": ("crv", "kty", "x", "y"),
+	"RSA": ("e", "kty", "n"),
+	"oct": ("k", "kty"),
+}
+
+
+def jwk_thumbprint(jwk: jwt.PyJWK) -> str:
+	jwk_dict = jwk.Algorithm.to_jwk(jwk.key, as_dict=True)
+	members = JWK_REQUIRED_MEMBERS.get(jwk.key_type)
+	if members is None:
+		raise jwt.exceptions.PyJWKError(
+			f"I don't know how to canonicalize key type {jwk.key_type}"
+		)
+	json_bytes = json.dumps(
+		{k: jwk_dict[k] for k in members},
+		separators=(",", ":"),
+	).encode()
+	json_hash = hashlib.sha256(json_bytes).digest()
+	return base64.urlsafe_b64encode(json_hash).rstrip(b"=").decode()
+
+
+if __name__ == "__main__":
+	# rfc7638 test vector
+	test_key = jwt.PyJWK.from_dict(
+		{
+			"kty": "RSA",
+			"n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+			"e": "AQAB",
+			"alg": "RS256",
+			"kid": "2011-04-29",
+		}
+	)
+	print(jwk_thumbprint(test_key))

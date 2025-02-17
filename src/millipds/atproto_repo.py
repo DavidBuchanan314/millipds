@@ -9,7 +9,7 @@ import asyncio
 
 from . import repo_ops
 from .appview_proxy import service_proxy
-from .auth_bearer import authenticated
+from .auth_bearer import auth_required
 from .app_util import *
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ async def apply_writes_and_emit_firehose(
 
 
 @routes.post("/xrpc/com.atproto.repo.applyWrites")
-@authenticated
+@auth_required({"transition:generic"})
 async def repo_apply_writes(request: web.Request):
 	return web.json_response(
 		await apply_writes_and_emit_firehose(request, await request.json())
@@ -62,7 +62,7 @@ async def repo_apply_writes(request: web.Request):
 
 
 @routes.post("/xrpc/com.atproto.repo.createRecord")
-@authenticated
+@auth_required({"transition:generic"})
 async def repo_create_record(request: web.Request):
 	orig: dict = await request.json()
 	res = await apply_writes_and_emit_firehose(
@@ -93,7 +93,7 @@ async def repo_create_record(request: web.Request):
 
 
 @routes.post("/xrpc/com.atproto.repo.putRecord")
-@authenticated
+@auth_required({"transition:generic"})
 async def repo_put_record(request: web.Request):
 	orig: dict = await request.json()
 	res = await apply_writes_and_emit_firehose(
@@ -125,7 +125,7 @@ async def repo_put_record(request: web.Request):
 
 
 @routes.post("/xrpc/com.atproto.repo.deleteRecord")
-@authenticated
+@auth_required({"transition:generic"})
 async def repo_delete_record(request: web.Request):
 	orig: dict = await request.json()
 	res = await apply_writes_and_emit_firehose(
@@ -254,7 +254,7 @@ async def repo_list_records(request: web.Request):
 
 
 @routes.post("/xrpc/com.atproto.repo.uploadBlob")
-@authenticated
+@auth_required({"transition:generic"})
 async def repo_upload_blob(request: web.Request):
 	mime = request.headers.get("content-type", "application/octet-stream")
 	BLOCK_SIZE = 0x10000  # 64k for now, might tweak this upwards, for perf?
