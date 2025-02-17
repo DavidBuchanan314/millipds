@@ -169,7 +169,7 @@ async def get_json_with_limit(
 		r.raise_for_status()
 		try:
 			await r.content.readexactly(limit)
-			raise ValueError("DID document too large")
+			raise ValueError("response body exceeded limit")
 		except asyncio.IncompleteReadError as e:
 			# this is actually the happy path
 			return json.loads(e.partial)
