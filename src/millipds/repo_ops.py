@@ -243,6 +243,7 @@ def apply_writes(
 					{
 						"cid": delta.later_value,
 						"path": delta.path,
+						"prev": delta.prior_value,
 						"action": "update",
 					}
 				)
@@ -264,9 +265,12 @@ def apply_writes(
 						ns, next_commit_root, delta.path
 					)
 				)
-				firehose_ops.append(
-					{"cid": None, "path": delta.path, "action": "delete"}
-				)
+				firehose_ops.append({
+					"cid": None,
+					"path": delta.path,
+					"prev": delta.prior_value,
+					"action": "delete"
+				})
 				blob_decref_all(con, user_id, prior_value)
 				con.execute(
 					"DELETE FROM record WHERE repo=? AND nsid=? AND rkey=?",
@@ -333,6 +337,7 @@ def apply_writes(
 			"commit": commit_cid,
 			"rebase": False,  # deprecated but still required
 			"tooBig": False,  # TODO: actually check lol
+			"prevData": prev_commit_root,
 		}
 		firehose_bytes = cbrrr.encode_dag_cbor(
 			{"t": "#commit", "op": 1}
