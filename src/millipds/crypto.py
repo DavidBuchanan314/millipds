@@ -42,9 +42,7 @@ MULTICODEC_PUBKEY_PREFIX = {
 	ec.SECP256R1: b"\x80\x24",  # varint(0x1200)
 }
 
-DETERMINISTIC_ECDSA_SHA256 = ec.ECDSA(
-	hashes.SHA256(), deterministic_signing=True
-)
+ECDSA_SHA256 = ec.ECDSA(hashes.SHA256())
 
 
 def apply_low_s_mitigation(dss_sig: bytes, curve: ec.EllipticCurve) -> bytes:
@@ -65,7 +63,7 @@ def assert_dss_sig_is_low_s(dss_sig: bytes, curve: ec.EllipticCurve) -> None:
 def raw_sign(privkey: ec.EllipticCurvePrivateKey, data: bytes) -> bytes:
 	r, s = decode_dss_signature(
 		apply_low_s_mitigation(
-			privkey.sign(data, DETERMINISTIC_ECDSA_SHA256), privkey.curve
+			privkey.sign(data, ECDSA_SHA256), privkey.curve
 		)
 	)
 	signature = r.to_bytes(32, "big") + s.to_bytes(32, "big")
