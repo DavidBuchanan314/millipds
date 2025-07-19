@@ -25,13 +25,6 @@ keep them in the loop if there are any important changes to be made.
 """
 
 
-CURVE_ORDER = {
-	# constant defined by NIST SP 800-186 - https://csrc.nist.gov/pubs/sp/800/186/final
-	ec.SECP256R1: 0xFFFFFFFF_00000000_FFFFFFFF_FFFFFFFF_BCE6FAAD_A7179E84_F3B9CAC2_FC632551,
-	# constant defined by SECG SEC 2 - https://www.secg.org/sec2-v2.pdf
-	ec.SECP256K1: 0xFFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFE_BAAEDCE6_AF48A03B_BFD25E8C_D0364141,
-}
-
 JWT_SIGNATURE_ALGS = {
 	ec.SECP256R1: "ES256",
 	ec.SECP256K1: "ES256K",
@@ -47,16 +40,14 @@ ECDSA_SHA256 = ec.ECDSA(hashes.SHA256())
 
 def apply_low_s_mitigation(dss_sig: bytes, curve: ec.EllipticCurve) -> bytes:
 	r, s = decode_dss_signature(dss_sig)
-	n = CURVE_ORDER[type(curve)]
-	if s > n // 2:
-		s = n - s
+	if s > curve.group_order // 2:
+		s = curve.group_order - s
 	return encode_dss_signature(r, s)
 
 
 def assert_dss_sig_is_low_s(dss_sig: bytes, curve: ec.EllipticCurve) -> None:
 	_, s = decode_dss_signature(dss_sig)
-	n = CURVE_ORDER[type(curve)]
-	if s > n // 2:
+	if s > curve.group_order // 2:
 		raise InvalidSignature("high-S signature")
 
 
@@ -104,7 +95,7 @@ def pubkey_from_pem(pem: str) -> ec.EllipticCurvePublicKey:
 	return pubkey
 
 
-def jwt_signature_alg_for_pem(pem: str) -> Literal["ES256", "ES256K"]:
+def jwt_signature_alg_for_pem(pem: str) -> str:
 	return JWT_SIGNATURE_ALGS[type(privkey_from_pem(pem).curve)]
 
 

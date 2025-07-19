@@ -22,7 +22,7 @@ dependencies = [
 	"cbrrr >= 1.0.0, < 2",
 	"atmst >= 0.0.6",
 	"pyjwt[crypto]",
-	"cryptography",
+	"cryptography >= 45.0.0",
 	"aiohttp",
 	"aiodns", # goes faster, apparently
 	"aiohttp-middlewares", # cors
