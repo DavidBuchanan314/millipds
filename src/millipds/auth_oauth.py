@@ -1,14 +1,26 @@
+from typing import Tuple
 import logging
 
 import jwt
 import cbrrr
 import json
+import secrets
+import time
+import hashlib
+import base64
+import urllib.parse
+import uuid
 
 from aiohttp import web
+from cryptography.fernet import Fernet
 
-from . import database
 from . import html_templates
 from .app_util import *
+from . import static_config
+from . import util
+from .util import definitely, NoneError
+from . import crypto
+from .auth_bearer import symmetric_token_auth, auth_required
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +30,23 @@ routes = web.RouteTableDef()
 WEBUI_HEADERS = {
 	"Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
 }
+
+# used to AEAD-encrypt oauth `code` data.
+# ciphertexts have short TTL so the key does not need to persist.
+code_fernet = Fernet(Fernet.generate_key())
+
+DPOP_SIGNING_ALG_SUPPORTED = [
+	"RS256",
+	"RS384",
+	"RS512",
+	"PS256",
+	"PS384",
+	"PS512",
+	"ES256",
+	"ES256K",
+	"ES384",
+	"ES512",
+]
 
 
 # example: https://shiitake.us-east.host.bsky.network/.well-known/oauth-protected-resource
@@ -55,23 +84,26 @@ async def oauth_authorization_server(request: web.Request):
 			],
 			"subject_types_supported": ["public"],
 			"response_types_supported": ["code"],
-			"response_modes_supported": ["query", "fragment", "form_post"],
+			"response_modes_supported": [
+				"query",
+				"fragment",
+			],  # , "form_post"],  # TODO
 			"grant_types_supported": ["authorization_code", "refresh_token"],
 			"code_challenge_methods_supported": ["S256"],
 			"ui_locales_supported": ["en-US"],
-			"display_values_supported": ["page", "popup", "touch"],
+			"display_values_supported": ["page"],  # TODO: , "popup", "touch"],
 			"authorization_response_iss_parameter_supported": True,
 			"request_object_signing_alg_values_supported": [
-				"RS256",
-				"RS384",
-				"RS512",
-				"PS256",
-				"PS384",
-				"PS512",
-				"ES256",
-				"ES256K",
-				"ES384",
-				"ES512",
+				# "RS256",
+				# "RS384",
+				# "RS512",
+				# "PS256",
+				# "PS384",
+				# "PS512",
+				# "ES256",
+				# "ES256K",
+				# "ES384",
+				# "ES512",  # TODO
 				"none",
 			],
 			"request_object_encryption_alg_values_supported": [],
@@ -79,93 +111,498 @@ async def oauth_authorization_server(request: web.Request):
 			"request_parameter_supported": True,
 			"request_uri_parameter_supported": True,
 			"require_request_uri_registration": True,
-			"jwks_uri": pfx + "/oauth/jwks",
+			"jwks_uri": pfx + "/oauth/jwks",  # TODO
 			"authorization_endpoint": pfx + "/oauth/authorize",
 			"token_endpoint": pfx + "/oauth/token",
 			"token_endpoint_auth_methods_supported": [
 				"none",
-				"private_key_jwt",
+				# "private_key_jwt", # TODO
 			],
-			"token_endpoint_auth_signing_alg_values_supported": [
-				"RS256",
-				"RS384",
-				"RS512",
-				"PS256",
-				"PS384",
-				"PS512",
-				"ES256",
-				"ES256K",
-				"ES384",
-				"ES512",
-			],
+			# "token_endpoint_auth_signing_alg_values_supported": [
+			# "RS256",
+			# "RS384",
+			# "RS512",
+			# "PS256",
+			# "PS384",
+			# "PS512",
+			# "ES256",
+			# "ES256K",
+			# "ES384",
+			# "ES512",
+			# ], # TODO
 			"revocation_endpoint": pfx + "/oauth/revoke",
 			"introspection_endpoint": pfx + "/oauth/introspect",
 			"pushed_authorization_request_endpoint": pfx + "/oauth/par",
 			"require_pushed_authorization_requests": True,
-			"dpop_signing_alg_values_supported": [
-				"RS256",
-				"RS384",
-				"RS512",
-				"PS256",
-				"PS384",
-				"PS512",
-				"ES256",
-				"ES256K",
-				"ES384",
-				"ES512",
-			],
+			"dpop_signing_alg_values_supported": DPOP_SIGNING_ALG_SUPPORTED,
 			"client_id_metadata_document_supported": True,
 		}
 	)
 
 
+def pretty_error_page(msg: str) -> web.HTTPBadRequest:
+	return web.HTTPBadRequest(
+		text=html_templates.error_page(msg),
+		content_type="text/html",
+		headers=WEBUI_HEADERS,
+	)
+
+
+def get_auth_request(request: web.Request) -> Tuple[dict, bytes]:
+	"""
+	pull a previously PAR'd auth request from db, and check it isn't expired.
+	reads request_uri query parameter.
+	Also returns the DPoP jwk thumbprint it was created with.
+	"""
+
+	try:
+		value, dpop_jkt, expires_at = definitely(
+			get_db(request)
+			.con.execute(
+				"SELECT value, dpop_jkt, expires_at FROM oauth_par WHERE uri=?",
+				(request.query.get("request_uri"),),
+			)
+			.fetchone()
+		)
+	except NoneError:
+		raise pretty_error_page("unrecognized request_uri.")
+
+	# we check for expiry on the python-side so we can give friendly errors
+	if expires_at < time.time():
+		raise pretty_error_page("authorization request expired. try again?")
+
+	return cbrrr.decode_dag_cbor(value), dpop_jkt
+
+
+def get_or_initiate_oauth_session(request: web.Request, login_hint: str) -> int:
+	"""
+	Get the user id if the currently auth'd user.
+	If there is no valid session, raise a redirect to the login page.
+	"""
+
+	user_id = (
+		get_db(request)
+		.con.execute(
+			"""
+				SELECT user_id FROM oauth_session_cookie
+				WHERE token=? AND expires_at>?
+			""",
+			(request.cookies.get("millipds-oauth-session"), int(time.time())),
+		)
+		.get
+	)
+	if user_id is None:
+		# no active oauth cookie session
+		raise web.HTTPTemporaryRedirect(
+			"/oauth/authenticate?"
+			+ urllib.parse.urlencode(
+				{
+					"login_hint": login_hint,
+					"next": request.path_qs,
+				}
+			)
+		)
+	return user_id
+
+
 # this is where a client will redirect to during the auth flow.
 # they'll see a webpage asking them to login
 @routes.get("/oauth/authorize")
-async def oauth_authorize(request: web.Request):
-	# TODO: extract request_uri
+@routes.post(
+	"/oauth/authorize"
+)  # we might get here via POST, if the user just granted some new scopes
+async def oauth_authorize_get(request: web.Request):
+	db = get_db(request)
+
+	client_id_param = request.query.get("client_id")
+
+	authorization_request, dpop_jkt = get_auth_request(request)
+	logger.info(authorization_request)
+
+	login_hint = authorization_request.get("login_hint", "")
+	user_id = get_or_initiate_oauth_session(request, login_hint)
+	# if we reached here, either there was an existing session, or the user
+	# just created a new one and got redirected back again
+
+	# XXX: why is the client_id sent in the request params in the first place anyway? seems like redundant information
+	if (
+		not client_id_param
+		or authorization_request.get("client_id") != client_id_param
+	):
+		raise pretty_error_page(
+			"client_id in URL does not match authorization request."
+		)
+
+	# fetch the client metadata doc
+	try:
+		client_metadata = await util.get_json_with_limit(
+			get_client(request), client_id_param, 0x10000, allow_redirects=False
+		)  # 64k limit
+		logger.info(client_metadata)
+		if not isinstance(client_metadata, dict):
+			raise TypeError("expected client_metadata to be dict")
+	except:
+		raise pretty_error_page("client_id document retrieval failed.")
+
+	if client_metadata.get("client_id") != client_id_param:
+		raise pretty_error_page(
+			"client_id document does not contain its own client_id"
+		)
+
+	# at this point onwards, `client_id` can be trusted to be correct/consistent
+	client_id = client_id_param
+
+	did, handle = db.con.execute(
+		"SELECT did, handle FROM user WHERE id=?", (user_id,)
+	).fetchone()
+	# TODO: check id hint in auth request matches!
+
+	wanted_scopes = set(authorization_request.get("scope", "").split(" "))
+
+	# check if someone just POSTed some more grants
+	if request.method == "POST":
+		form = await request.post()
+		logging.info(form)
+		freshly_granted_scopes = form["scope"].split(" ")
+		grant_client_id = form["client_id"]
+		# do we really need to put client_id in the form in the first place?
+		if grant_client_id != client_id:
+			raise web.HTTPBadRequest(text="client_id mismatch")
+		grant_time = int(time.time())
+		db.con.executemany(
+			"""
+				INSERT OR IGNORE INTO oauth_grants (
+					user_id, client_id, scope, granted_at
+				) VALUES (?, ?, ?, ?)
+			""",
+			[
+				(user_id, grant_client_id, scope, grant_time)
+				for scope in freshly_granted_scopes
+			],
+		)
+
+	already_granted_scopes = set(
+		scope
+		for scope, *_ in db.con.execute(
+			"SELECT scope FROM oauth_grants WHERE user_id=? AND client_id=?",
+			(user_id, client_id),
+		).fetchall()
+	)
+	missing_scopes = wanted_scopes - already_granted_scopes
+
+	if missing_scopes:
+		# TODO: improve the web UI to show the user which scopes were previously granted, if applicable
+		logger.info(f"missing scopes: {missing_scopes}")
+		return web.Response(
+			text=html_templates.authz_page(
+				handle=handle, client_id=client_id, scopes=list(wanted_scopes)
+			),
+			content_type="text/html",
+			headers=WEBUI_HEADERS,
+		)
+
+	# else, everything checks out.
+	# generate the auth tokens, encrypt them into the auth code, and redirect the user back to the app!
+
+	# use the same jti for both tokens, so revoking one revokes both
+	payload_common = {
+		"aud": db.config["pds_did"],
+		"sub": did,
+		"iat": int(time.time()),
+		"jti": str(uuid.uuid4()),
+		"cnf": {
+			"jkt": dpop_jkt,
+		},
+	}
+	access_jwt = jwt.encode(
+		payload_common
+		| {
+			"scope": authorization_request["scope"],
+			"exp": payload_common["iat"] + static_config.ACCESS_EXP,
+		},
+		db.config["jwt_access_secret"],
+		"HS256",
+	)
+
+	# made-up scope to distinguish the one generated during password auth
+	refresh_jwt = jwt.encode(
+		payload_common
+		| {
+			"scope": "com.atproto.refresh:oauth",
+			"refresh_scope": authorization_request["scope"],
+			"exp": payload_common["iat"] + static_config.REFRESH_EXP,
+		},
+		db.config["jwt_access_secret"],
+		"HS256",
+	)
+
+	code = code_fernet.encrypt(
+		cbrrr.encode_dag_cbor(
+			{
+				"client_id": client_id,
+				"code_challenge": authorization_request["code_challenge"],
+				"code_challenge_method": authorization_request[
+					"code_challenge_method"
+				],
+				"dpop_jkt": dpop_jkt,
+				"token_response": {
+					"access_token": access_jwt,
+					"token_type": "DPoP",
+					"expires_in": static_config.ACCESS_EXP,
+					"refresh_token": refresh_jwt,
+					"scope": authorization_request["scope"],
+					"sub": did,
+				},
+			}
+		)
+	).decode()
+
+	SEPARATORS = {"fragment": "#", "query": "?"}
+	if separator := SEPARATORS.get(authorization_request["response_mode"]):
+		return web.HTTPSeeOther(
+			authorization_request["redirect_uri"]
+			+ separator
+			+ urllib.parse.urlencode(
+				{
+					"iss": db.config["pds_pfx"],
+					"state": authorization_request["state"],
+					"code": code,
+				}
+			)
+		)
+	# TODO: support form_post?
+	else:
+		return pretty_error_page("unsupported response_mode")
+
+
+@routes.get("/oauth/authenticate")
+async def oauth_authenticate_get(request: web.Request):
 	return web.Response(
-		text=html_templates.authn_page(),  # this includes a login form that POSTs to /oauth/authorize (i.e. same endpoint)
+		text=html_templates.authn_page(
+			identifier_hint=request.query.get("login_hint", "")
+		),  # this includes a login form that POSTs to the same endpoint
 		content_type="text/html",
 		headers=WEBUI_HEADERS,
 	)
 
 
-# after login, assuming the creds were good, the user will be prompted to
-# authorize the client application to access certain scopes
-@routes.post("/oauth/authorize")
-async def oauth_authorize_handle_login(request: web.Request):
-	# TODO: actually handle login
-	return web.Response(
-		text=html_templates.authz_page(),
-		content_type="text/html",
-		headers=WEBUI_HEADERS,
-	)
+@routes.post("/oauth/authenticate")
+async def oauth_authenticate_post(request: web.Request):
+	form = await request.post()
+	logger.info(form)
+
+	db = get_db(request)
+	form_identifier = form.get("identifier", "")
+	form_password = form.get("password", "")
+
+	try:
+		user_id, did, handle = db.verify_account_login(
+			form_identifier, form_password
+		)
+		# login succeeded, let's start a new cookie session
+		session_token = secrets.token_hex()
+		session_value = {}
+		now = int(time.time())
+		db.con.execute(
+			"""
+				INSERT INTO oauth_session_cookie (
+					token, user_id, value, created_at, expires_at
+				) VALUES (?, ?, ?, ?, ?)
+			""",
+			(
+				session_token,
+				user_id,
+				cbrrr.encode_dag_cbor(session_value),
+				now,
+				now + static_config.OAUTH_COOKIE_EXP,
+			),
+		)
+		# this check could be relaxed, but it *has* to be a relative URL
+		next = request.query.get("next", "")
+		if not next.startswith("/oauth/"):
+			raise web.HTTPBadRequest(text="unsupported redirect target")
+		# we can't use a 301/302 redirect because we want to produce a GET
+		res = web.HTTPSeeOther(next)
+		res.set_cookie(
+			name="millipds-oauth-session",
+			value=session_token,
+			max_age=static_config.OAUTH_COOKIE_EXP,
+			path="/oauth/authorize",  # the only page that needs to see it
+			secure=True,  # prevents token from leaking over plaintext channels
+			httponly=True,  # prevents XSS from being able to steal tokens
+			samesite="Lax",  # Partial CSRF mitigation
+		)
+		return res
+	except:
+		return web.Response(
+			text=html_templates.authn_page(
+				identifier_hint=form_identifier,
+				error_msg="incorrect identifier or password",
+			),
+			content_type="text/html",
+			headers=WEBUI_HEADERS,
+		)
 
 
-DPOP_NONCE = "placeholder_nonce_value"  # this needs to get rotated! (does it matter that it's global?)
-
-
-def dpop_protected(handler):
+def dpop_required(handler):
 	async def dpop_handler(request: web.Request):
-		dpop = request.headers.get("dpop")
-		if dpop is None:
+		if request.get("verified_dpop_jkt") is None:
 			raise web.HTTPBadRequest(text="missing dpop")
+		return await handler(request)
 
+	return dpop_handler
+
+
+@routes.post("/oauth/token")
+@dpop_required
+async def oauth_token_post(request: web.Request):
+	form: dict = await request.json()
+	logger.info(form)
+
+	grant_type = form.get("grant_type")
+
+	if grant_type == "authorization_code":
+		code_payload = cbrrr.decode_dag_cbor(
+			code_fernet.decrypt(token=form["code"], ttl=60)
+		)
+		logger.info(code_payload)
+
+		# TODO: what do I do with redirect_uri?
+
+		if form.get("client_id") != code_payload["client_id"]:
+			raise web.HTTPBadRequest(text="client_id mismatch")
+
+		if request["verified_dpop_jkt"] != code_payload["dpop_jkt"]:
+			raise web.HTTPBadRequest(text="dpop mismatch")
+
+		if code_payload["code_challenge_method"] != "S256":
+			raise web.HTTPBadRequest(text="bad code_challenge_method")
+
+		expected_code_challenge = (
+			base64.urlsafe_b64encode(
+				hashlib.sha256(form["code_verifier"].encode("ascii")).digest()
+			)
+			.rstrip(b"=")
+			.decode()
+		)
+		if expected_code_challenge != code_payload["code_challenge"]:
+			raise web.HTTPBadRequest(text="bad code_verifier")
+
+		return web.json_response(code_payload["token_response"])
+
+	elif grant_type == "refresh_token":
+		# TODO: check client_id matches?
+		symmetric_token_auth(request, "dpop", form.get("refresh_token"))
+		if "com.atproto.refresh:oauth" not in request["authed_scopes"]:
+			raise web.HTTPBadRequest(text="not a refresh token")
+		# TODO: revoke old token, issue new one...
+	else:
+		raise web.HTTPBadRequest(text="unsupported grant_type")
+
+
+@routes.post("/oauth/revoke")
+@dpop_required
+async def oauth_revoke_post(request: web.Request):
+	# TODO!!!!
+	logger.error("oauth token revocation not implemented!!!!")
+	return web.Response()
+
+
+@routes.post("/oauth/par")
+@dpop_required
+async def oauth_pushed_authorization_request(request: web.Request):
+	# NOTE: rfc9126 says this is posted as form data, but this is atproto-flavoured oauth
+	request_json = await request.json()
+	logger.info(request_json)
+
+	# idk if this is required
+	assert request_json["client_id"] == request["dpop_iss"]
+
+	now = int(time.time())
+	par_uri = "urn:ietf:params:oauth:request_uri:req-" + secrets.token_hex()
+
+	# NOTE: we don't do any verification of the auth request itself, we just associate it with a URI for later retreival.
+	get_db(request).con.execute(
+		"""
+			INSERT INTO oauth_par (
+				uri, dpop_jkt, value, created_at, expires_at
+			) VALUES (?, ?, ?, ?, ?)
+		""",
+		(
+			par_uri,
+			request["verified_dpop_jkt"],
+			cbrrr.encode_dag_cbor(request_json),
+			now,
+			now + static_config.OAUTH_PAR_EXP,
+		),
+	)
+
+	return web.json_response(
+		{
+			"request_uri": par_uri,
+			"expires_in": static_config.OAUTH_PAR_EXP,
+		}
+	)
+
+
+def generate_dpop_nonce(request: web.Request) -> str:
+	# XXX: stop reusing "jwt_access_secret" for like, lots of other things.
+	return jwt.encode(
+		{
+			"jti": str(uuid.uuid4()),
+			"exp": int(time.time()) + static_config.DPOP_NONCE_EXP,
+		},
+		get_db(request).config["jwt_access_secret"] + ":dpop_nonce",
+		"HS256",
+	)
+
+
+def validate_dpop_nonce_and_extract_jti_and_exp(
+	request: web.Request, nonce_jwt: str
+) -> Tuple[str, int]:
+	payload = jwt.decode(
+		nonce_jwt,
+		key=get_db(request).config["jwt_access_secret"] + ":dpop_nonce",
+		algorithms=["HS256"],
+		options={
+			"require": ["exp"]  # pyjwt will verify if present
+		},
+	)
+	return payload["jti"], payload["exp"]
+
+
+@web.middleware
+async def dpop_middlware(request: web.Request, handler) -> web.Response:
+	# passthru any non-dpop requests
+	if (dpop := request.headers.get("dpop")) is None:
+		return await handler(request)
+
+	try:
 		# we're not verifying yet, we just want to pull out the jwk from the header
 		unverified = jwt.api_jwt.decode_complete(
 			dpop, options={"verify_signature": False}
 		)
 		jwk_data = unverified["header"]["jwk"]
 		jwk = jwt.PyJWK.from_dict(jwk_data)
-		decoded: dict = jwt.decode(
-			dpop, key=jwk
-		)  # actual signature verification happens here
+		jkt = crypto.jwk_thumbprint(jwk)
+
+		# actual signature verification happens here:
+		try:
+			# TODO: be explicit about what algorithms we support???
+			decoded: dict = jwt.decode(
+				dpop, key=jwk, algorithms=DPOP_SIGNING_ALG_SUPPORTED
+			)
+		except jwt.DecodeError:
+			raise util.atproto_json_http_error(
+				web.HTTPBadRequest,
+				"invalid_dpop_proof",
+				"failed to verify dpop proof signature",
+			)
 
 		logger.info(decoded)
 		logger.info(request.url)
 
-		# TODO: verify iat?, iss?
+		# TODO: verify iat?
 
 		if request.method != decoded["htm"]:
 			raise web.HTTPBadRequest(text="dpop: bad htm")
@@ -176,52 +613,114 @@ def dpop_protected(handler):
 				text="dpop: bad htu (if your application is reverse-proxied, make sure the Host header is getting set properly)"
 			)
 
-		if decoded.get("nonce") != DPOP_NONCE:
-			raise web.HTTPBadRequest(
-				body=json.dumps(
-					{
-						"error": "use_dpop_nonce",
-						"error_description": "Authorization server requires nonce in DPoP proof",
-					}
-				),
-				headers={
-					"DPoP-Nonce": DPOP_NONCE,
-					"Content-Type": "application/json",
-				},  # if we don't put it here, the client will never see it
+		if "nonce" not in decoded:
+			raise util.atproto_json_http_error(
+				web.HTTPBadRequest,
+				"use_dpop_nonce",
+				"Authorization server requires nonce in DPoP proof",
 			)
 
-		request["dpop_jwk"] = cbrrr.encode_dag_cbor(
-			jwk_data
-		)  # for easy comparison in db etc.
+		try:
+			nonce_jti, nonce_exp = validate_dpop_nonce_and_extract_jti_and_exp(
+				request, decoded["nonce"]
+			)
+		except jwt.ExpiredSignatureError:
+			raise util.atproto_json_http_error(
+				web.HTTPBadRequest,
+				"invalid_dpop_proof",
+				"expired nonce",
+			)
+		except jwt.DecodeError:
+			raise util.atproto_json_http_error(
+				web.HTTPBadRequest,
+				"invalid_dpop_proof",
+				"invalid nonce",
+			)
+
+		db = get_db(request)
+		# note: we don't need to check for nonce expiry in this query because
+		# validate_dpop_nonce_and_extract_jti already checked it
+		is_replay = db.con.execute(
+			"SELECT COUNT(*) FROM dpop_replay WHERE dpop_jti=? AND nonce_jti=?",
+			(decoded["jti"], nonce_jti),
+		).get
+		if is_replay:
+			# TODO: is this the right kind of error?
+			raise util.atproto_json_http_error(
+				web.HTTPBadRequest,
+				"invalid_dpop_proof",
+				"you used that one before?!",
+			)
+
+		# store this one so it can't be replayed later
+		db.con.execute(
+			"""
+			INSERT INTO dpop_replay (dpop_jti, nonce_jti, nonce_expires_at)
+			VALUES (?, ?, ?)
+			""",
+			(decoded["jti"], nonce_jti, nonce_exp),
+		)
+
+		# drop expired nonces from the replay table
+		db.con.execute(
+			"DELETE FROM dpop_replay WHERE nonce_expires_at<?",
+			(int(time.time()),),
+		)
+
+		request["verified_dpop_jkt"] = (
+			jkt  # certifies that the dpop is valid for this particular jkt
+		)
 		request["dpop_jti"] = decoded[
 			"jti"
-		]  # XXX: should replay prevention happen here?
+		]  # do we really need to pass this thru?
 		request["dpop_iss"] = decoded["iss"]
+		# TODO: store dpop_ath and check it during authorization
 
 		res: web.Response = await handler(request)
-		res.headers["DPoP-Nonce"] = (
-			DPOP_NONCE  # TODO: make sure this always gets set even under error conditions?
-		)
+		res.headers["DPoP-Nonce"] = generate_dpop_nonce(request)
 		return res
+	except web.HTTPError as res:
+		res.headers["DPoP-Nonce"] = generate_dpop_nonce(request)
+		raise res
 
-	return dpop_handler
 
-
-@routes.post("/oauth/par")
-@dpop_protected
-async def oauth_pushed_authorization_request(request: web.Request):
-	data = (
-		await request.json()
-	)  # TODO: doesn't rfc9126 say it's posted as form data?
-	logging.info(data)
-
-	assert data["client_id"] == request["dpop_iss"]  # idk if this is required
-
-	# we need to store the request somewhere, and associate it with the URI we return
-
+@routes.get("/xrpc/com.atproto.server.listAppPasswords")
+@auth_required({"transition:generic"})
+async def list_app_passwords(request: web.Request):
+	"""
+	Since millipds does not support app passwords, and bsky.app does not support
+	revoking oauth scopes/sessions, we reuse the app password APIs for the latter
+	"""
+	db = get_db(request)
+	user_id = db.con.execute(
+		"SELECT id FROM user WHERE did=?", (request["authed_did"],)
+	).get
 	return web.json_response(
 		{
-			"request_uri": "urn:ietf:params:oauth:request_uri:req-064ed63e9fbf10815fd5f402f4f3e92a",  # XXX hardcoded test
-			"expires_in": 299,
+			"passwords": [
+				{
+					"name": json.dumps([client_id, scope], indent=4),
+					"createdAt": util.unix_to_iso_string(granted_at),
+				}
+				for client_id, scope, granted_at in db.con.execute(
+					"SELECT client_id, scope, granted_at FROM oauth_grants WHERE user_id=?",
+					(user_id,),
+				).fetchall()
+			]
 		}
 	)
+
+
+@routes.post("/xrpc/com.atproto.server.revokeAppPassword")
+@auth_required({"transition:generic"})
+async def revoke_app_password(request: web.Request):
+	body = await request.json()
+	client_id, scope = json.loads(body["name"])
+	get_db(request).con.execute(
+		"""
+		DELETE FROM oauth_grants WHERE
+		user_id=(SELECT id FROM user WHERE did=?) AND client_id=? AND scope=?
+		""",
+		(request["authed_did"], client_id, scope),
+	)
+	return web.Response()

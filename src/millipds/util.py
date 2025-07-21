@@ -13,10 +13,11 @@ from typing import (
 	Dict,
 	Hashable,
 	Type,
+	TypeVar,
 )
 from weakref import WeakValueDictionary
 
-from aiohttp import web
+from aiohttp import web, ClientSession
 
 import cbrrr
 from atmst.blockstore.car_file import encode_varint
@@ -45,17 +46,21 @@ def tid_now():  # XXX: this is not strongly guaranteed to be monotonic
 	)
 
 
-def iso_string_now():
+def unix_to_iso_string(timestamp: float | int) -> str:
 	"""
-	JavaScript-like timestamp strings
+	Returns JavaScript-like timestamp strings
 	e.g. 2000-01-01T00:00:00.000Z
 	"""
 	return (
-		datetime.datetime.now(tz=datetime.timezone.utc)
-		.replace(tzinfo=None)
-		.isoformat(timespec="milliseconds")
+		datetime.datetime.fromtimestamp(timestamp).isoformat(
+			timespec="milliseconds"
+		)
 		+ "Z"
 	)
+
+
+def iso_string_now() -> str:
+	return unix_to_iso_string(time.time())
 
 
 def deep_iter(obj: cbrrr.DagCborTypes) -> Iterator[cbrrr.DagCborTypes]:
@@ -155,3 +160,29 @@ def atproto_json_http_error(
 		),
 		content_type="application/json",
 	)
+
+
+async def get_json_with_limit(
+	session: ClientSession, url: str, limit: int, allow_redirects: bool = True
+):
+	async with session.get(url, allow_redirects=allow_redirects) as r:
+		r.raise_for_status()
+		try:
+			await r.content.readexactly(limit)
+			raise ValueError("response body exceeded limit")
+		except asyncio.IncompleteReadError as e:
+			# this is actually the happy path
+			return json.loads(e.partial)
+
+
+class NoneError(TypeError):
+	pass
+
+
+T = TypeVar("T")
+
+
+def definitely(obj: Optional[T]) -> T:
+	if obj is None:
+		raise NoneError("Expected something, but found None")
+	return obj
