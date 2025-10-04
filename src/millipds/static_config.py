@@ -25,6 +25,10 @@ FIREHOSE_QUEUE_SIZE = 100
 
 # NB: each firehose event can be up to ~1MB, but on average they're much smaller
 
+# Blob storage chunk size - cannot be reconfigured after database initialization
+# as changing this will break existing blob storage
+BLOB_PART_SIZE = 0x10000  # 64KB
+
 DID_CACHE_TTL = 60 * 60  # 1 hour
 DID_CACHE_ERROR_TTL = 60 * 5  # 5 mins
 

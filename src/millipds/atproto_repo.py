@@ -8,6 +8,7 @@ import apsw
 import asyncio
 
 from . import repo_ops
+from . import static_config
 from .appview_proxy import service_proxy
 from .auth_bearer import authenticated
 from .app_util import *
@@ -263,7 +264,6 @@ async def repo_list_records(request: web.Request):
 @authenticated
 async def repo_upload_blob(request: web.Request):
 	mime = request.headers.get("content-type", "application/octet-stream")
-	BLOCK_SIZE = 0x10000  # 64k for now, might tweak this upwards, for perf?
 	db = get_db(request)
 	# TODO: should I start a fresh transaction here? will it block other writers for the duration?
 	db.con.execute(
@@ -276,7 +276,9 @@ async def repo_upload_blob(request: web.Request):
 	hasher = hashlib.sha256()
 	while True:
 		try:
-			chunk = await request.content.readexactly(BLOCK_SIZE)
+			chunk = await request.content.readexactly(
+				static_config.BLOB_PART_SIZE
+			)
 		except asyncio.IncompleteReadError as e:
 			chunk = e.partial
 		if not chunk:  # zero-length final chunk
@@ -288,7 +290,7 @@ async def repo_upload_blob(request: web.Request):
 			(blob_id, part_idx, chunk),
 		)
 		part_idx += 1
-		if len(chunk) < BLOCK_SIZE:
+		if len(chunk) < static_config.BLOB_PART_SIZE:
 			break
 	digest = hasher.digest()
 	cid = cbrrr.CID(cbrrr.CID.CIDV1_RAW_SHA256_32_PFX + digest)
