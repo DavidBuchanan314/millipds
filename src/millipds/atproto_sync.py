@@ -27,21 +27,104 @@ async def sync_get_blob(request: web.Request):
 		).fetchone()
 		if blob_id is None:
 			raise web.HTTPNotFound(text="blob not found")
-		res = web.StreamResponse(
-			headers={
-				"Content-Disposition": f'attachment; filename="{request.query["cid"]}.bin"'
-			}
-		)
+
+		# Calculate total blob size efficiently
+		# Most parts are BLOB_PART_SIZE, only the last part may be smaller
+		num_parts = con.execute(
+			"SELECT COUNT(*) FROM blob_part WHERE blob=?", (blob_id[0],)
+		).get
+		if num_parts == 0:
+			total_size = 0
+		else:
+			last_part_size = con.execute(
+				"SELECT LENGTH(data) FROM blob_part WHERE blob=? ORDER BY idx DESC LIMIT 1",
+				(blob_id[0],),
+			).get
+			total_size = (
+				num_parts - 1
+			) * static_config.BLOB_PART_SIZE + last_part_size
+
+		# Prepare response headers
+		headers = {
+			"Content-Disposition": f'attachment; filename="{request.query["cid"]}.bin"',
+			"Accept-Ranges": "bytes",
+		}
+
+		# Handle range request using aiohttp's built-in http_range
+		try:
+			http_range = request.http_range
+		except ValueError:
+			# aiohttp raises ValueError for invalid ranges (e.g., start > end)
+			raise web.HTTPRequestRangeNotSatisfiable(
+				headers={"Content-Range": f"bytes */{total_size}"}
+			)
+
+		if http_range.start is not None or http_range.stop is not None:
+			# Handle suffix range (e.g., bytes=-5000 -> last 5000 bytes)
+			# aiohttp represents this as start=-5000, stop=None
+			if http_range.start is not None and http_range.start < 0:
+				# Suffix range: last N bytes
+				suffix_length = -http_range.start
+				if suffix_length == 0:
+					raise web.HTTPRequestRangeNotSatisfiable(
+						headers={"Content-Range": f"bytes */{total_size}"}
+					)
+				start = max(0, total_size - suffix_length)
+				end = total_size - 1
+			else:
+				# Normal range
+				start = http_range.start or 0
+				stop = http_range.stop or total_size
+				# http_range.stop is exclusive, convert to inclusive end
+				end = stop - 1
+
+				# Validate range
+				if start < 0 or start >= total_size or end < start:
+					raise web.HTTPRequestRangeNotSatisfiable(
+						headers={"Content-Range": f"bytes */{total_size}"}
+					)
+
+				# Clamp end to total_size - 1
+				end = min(end, total_size - 1)
+
+			content_length = end - start + 1
+			headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+			status = 206
+		else:
+			start, end = 0, total_size - 1
+			content_length = total_size
+			status = 200
+
+		res = web.StreamResponse(status=status, headers=headers)
 		res.content_type = "application/octet-stream"
+		res.content_length = content_length
 		await res.prepare(request)
+
+		# Calculate which blob parts we need to fetch
+		# Part indices are 0-based
+		first_part_idx = start // static_config.BLOB_PART_SIZE
+		last_part_idx = end // static_config.BLOB_PART_SIZE
+
+		# Stream only the required blob parts
+		current_offset = first_part_idx * static_config.BLOB_PART_SIZE
 		for (
 			blob_part,
 			*_,
-		) in con.execute(  # TODO: would bad things happen to the db if a client started reading and then blocked?
-			"SELECT data FROM blob_part WHERE blob=? ORDER BY idx",
-			(blob_id[0],),
+		) in con.execute(
+			"SELECT data FROM blob_part WHERE blob=? AND idx>=? AND idx<=? ORDER BY idx",
+			(blob_id[0], first_part_idx, last_part_idx),
 		):
-			await res.write(blob_part)
+			part_size = len(blob_part)
+
+			# Determine slice boundaries within this part
+			slice_start = max(0, start - current_offset)
+			slice_end = min(part_size, end - current_offset + 1)
+
+			# Write the relevant slice
+			await res.write(blob_part[slice_start:slice_end])
+
+			current_offset += part_size
+
 		await res.write_eof()
 		return res
 
