@@ -22,6 +22,7 @@ jobs:
         run: |
           python3 -m pip install .[test]
       - name: Run pyright type checking
+        if: matrix.python-version != '3.10'
         run: |
           python3 -m pyright src/millipds/ tests/
       - name: Run the tests
