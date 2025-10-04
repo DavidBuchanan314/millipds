@@ -5,10 +5,10 @@ import pytest
 from tests.conftest import TEST_DID
 
 
-async def test_sync_getRepo(s, pds_host):
+async def test_sync_getRepo(s, populated_pds_host):
 	"""Test basic repository retrieval."""
 	async with s.get(
-		pds_host + "/xrpc/com.atproto.sync.getRepo",
+		populated_pds_host + "/xrpc/com.atproto.sync.getRepo",
 		params={"did": TEST_DID},
 	) as r:
 		assert r.status == 200
