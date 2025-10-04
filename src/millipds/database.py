@@ -5,7 +5,7 @@ Password hashing also happens in here, because it doesn't make much sense to do
 it anywhere else.
 """
 
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, cast, TypedDict
 from functools import cached_property
 import secrets
 import logging
@@ -28,6 +28,28 @@ logger = logging.getLogger(__name__)
 apsw.bestpractice.apply(apsw.bestpractice.recommended)
 
 
+class MillipdsConfigPartial(TypedDict):
+	"""Config as stored in database - some fields may be None"""
+
+	db_version: int
+	jwt_access_secret: str
+	pds_pfx: Optional[str]
+	pds_did: Optional[str]
+	bsky_appview_pfx: Optional[str]
+	bsky_appview_did: Optional[str]
+
+
+class MillipdsConfig(TypedDict):
+	"""Fully initialized config - all fields are present"""
+
+	db_version: int
+	jwt_access_secret: str
+	pds_pfx: str
+	pds_did: str
+	bsky_appview_pfx: str
+	bsky_appview_did: str
+
+
 class DBBlockStore(BlockStore):
 	"""
 	Adapt the db for consumption by the atmst library
@@ -35,17 +57,20 @@ class DBBlockStore(BlockStore):
 
 	def __init__(self, db: apsw.Connection, repo: str) -> None:
 		self.db = db
-		self.user_id = self.db.execute(
+		user_id = self.db.execute(
 			"SELECT id FROM user WHERE did=?", (repo,)
-		).fetchone()[0]
+		).get
+		if user_id is None:
+			raise KeyError(f"user not found: {repo}")
+		self.user_id = user_id
 
 	def get_block(self, key: bytes) -> bytes:
-		row = self.db.execute(
+		value = self.db.execute(
 			"SELECT value FROM mst WHERE repo=? AND cid=?", (self.user_id, key)
-		).fetchone()
-		if row is None:
+		).get
+		if value is None:
 			raise KeyError("block not found in db")
-		return row[0]
+		return value
 
 	def del_block(self, key: bytes) -> None:
 		raise NotImplementedError("TODO?")
@@ -65,7 +90,7 @@ class Database:
 
 		config_exists = self.con.execute(
 			"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='config'"
-		).fetchone()[0]
+		).get
 
 		if config_exists:
 			if self.config["db_version"] != static_config.MILLIPDS_DB_VERSION:
@@ -286,7 +311,7 @@ class Database:
 			pass
 
 	@cached_property
-	def config(self) -> Dict[str, object]:
+	def config(self) -> MillipdsConfig:
 		config_fields = (
 			"db_version",
 			"pds_pfx",
@@ -296,16 +321,34 @@ class Database:
 			"jwt_access_secret",
 		)
 
-		cfg = self.con.execute(
+		match self.con.execute(
 			f"SELECT {', '.join(config_fields)} FROM config"
-		).fetchone()
-
-		# TODO: consider using a properly typed dataclass rather than a dict
-		# see also https://docs.python.org/3/library/typing.html#typing.TypedDict
-		return dict(zip(config_fields, cfg))
+		).get:
+			case None:
+				raise Exception("config not initialized")
+			case cfg:
+				partial = cast(
+					MillipdsConfigPartial, dict(zip(config_fields, cfg))
+				)
+				# Validate that all required fields are present
+				if (
+					partial["pds_pfx"] is None
+					or partial["pds_did"] is None
+					or partial["bsky_appview_pfx"] is None
+					or partial["bsky_appview_did"] is None
+				):
+					raise Exception(
+						"config is incomplete - run initialization first"
+					)
+				# Now we can safely cast to the full config type
+				return cast(MillipdsConfig, partial)
 
 	def config_is_initialised(self) -> bool:
-		return all(v is not None for v in self.config.values())
+		try:
+			_ = self.config
+			return True
+		except Exception:
+			return False
 
 	def print_config(self, redact_secrets: bool = True) -> None:
 		maxlen = max(map(len, self.config))
@@ -374,52 +417,45 @@ class Database:
 	def verify_account_login(
 		self, did_or_handle: str, password: str
 	) -> Tuple[str, str]:
-		row = self.con.execute(
+		match self.con.execute(
 			"SELECT did, handle, pw_hash FROM user WHERE did=? OR handle=?",
 			(did_or_handle, did_or_handle),
-		).fetchone()
-		if row is None:
-			raise KeyError("no account found for did")
-		did, handle, pw_hash = row
-		try:
-			self.pw_hasher.verify(pw_hash, password)
-		except argon2.exceptions.VerifyMismatchError:
-			raise ValueError("invalid password")
-		return did, handle
+		).get:
+			case None:
+				raise KeyError("no account found for did")
+			case (did, handle, pw_hash):
+				try:
+					self.pw_hasher.verify(pw_hash, password)
+				except argon2.exceptions.VerifyMismatchError:
+					raise ValueError("invalid password")
+				return did, handle
+			case _:
+				raise RuntimeError("unexpected query result")
 
 	def did_by_handle(self, handle: str) -> Optional[str]:
-		row = self.con.execute(
+		return self.con.execute(
 			"SELECT did FROM user WHERE handle=?", (handle,)
-		).fetchone()
-		if row is None:
-			return None
-		return row[0]
+		).get
 
 	def handle_by_did(self, did: str) -> Optional[str]:
-		row = self.con.execute(
+		return self.con.execute(
 			"SELECT handle FROM user WHERE did=?", (did,)
-		).fetchone()
-		if row is None:
-			return None
-		return row[0]
+		).get
 
 	def signing_key_pem_by_did(self, did: str) -> Optional[str]:
-		row = self.con.execute(
+		return self.con.execute(
 			"SELECT signing_key FROM user WHERE did=?", (did,)
-		).fetchone()
-		if row is None:
-			return None
-		return row[0]
+		).get
 
 	def list_repos(
 		self,
 	) -> List[Tuple[str, cbrrr.CID, str]]:  # TODO: pagination
 		return [
-			(did, cbrrr.CID(head), rev)
+			(cast(str, did), cbrrr.CID(cast(bytes, head)), cast(str, rev))
 			for did, head, rev in self.con.execute(
 				"SELECT did, head, rev FROM user"
 			).fetchall()
 		]
 
-	def get_blockstore(self, did: str) -> "Database":
-		return DBBlockStore(self, did)
+	def get_blockstore(self, did: str) -> DBBlockStore:
+		return DBBlockStore(self.con, did)

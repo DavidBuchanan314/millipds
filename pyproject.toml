@@ -44,6 +44,10 @@ test = [
 	"pytest-aio",
 	"pytest-aiohttp",
 	"pytest-depends",
+	"pyright",
+]
+dev = [
+	"ruff",
 ]
 
 [project.urls]

@@ -154,26 +154,30 @@ async def repo_describe_repo(request: web.Request):
 		raise web.HTTPBadRequest(text="missing repo")
 	did_or_handle = request.query["repo"]
 	with get_db(request).new_con(readonly=True) as con:
-		user_id, did, handle = con.execute(
+		match con.execute(
 			"SELECT id, did, handle FROM user WHERE did=? OR handle=?",
 			(did_or_handle, did_or_handle),
-		).fetchone()
-
-		return web.json_response(
-			{
-				"handle": handle,
-				"did": did,
-				"didDoc": {},  # TODO
-				"collections": [
-					row[0]
-					for row in con.execute(
-						"SELECT DISTINCT(nsid) FROM record WHERE repo=?",
-						(user_id,),
-					)  # TODO: is this query efficient? do we want an index?
-				],
-				"handleIsCorrect": True,  # TODO
-			}
-		)
+		).get:
+			case None:
+				raise web.HTTPNotFound(text="repo not found")
+			case (user_id, did, handle):
+				return web.json_response(
+					{
+						"handle": handle,
+						"did": did,
+						"didDoc": {},  # TODO
+						"collections": [
+							row[0]
+							for row in con.execute(
+								"SELECT DISTINCT(nsid) FROM record WHERE repo=?",
+								(user_id,),
+							)  # TODO: is this query efficient? do we want an index?
+						],
+						"handleIsCorrect": True,  # TODO
+					}
+				)
+			case _:
+				raise RuntimeError("unexpected query result")
 
 
 @routes.get("/xrpc/com.atproto.repo.getRecord")
@@ -225,6 +229,7 @@ async def repo_list_records(request: web.Request):
 	did_or_handle = request.query["repo"]
 	collection = request.query["collection"]
 	records = []
+	last_rkey = None
 	db = get_db(request)
 	# TODO: rather than ordering by rkey, we should maybe order based on how
 	# recently it was inserted/updated. I guess `since` would get us that, but
@@ -240,6 +245,7 @@ async def repo_list_records(request: web.Request):
 		""",
 		(did_or_handle, did_or_handle, collection, cursor, limit),
 	):
+		last_rkey = rkey
 		records.append(
 			{
 				"uri": f"at://{did_or_handle}/{collection}/{rkey}",  # TODO rejig query to get the did out always
@@ -249,7 +255,7 @@ async def repo_list_records(request: web.Request):
 		)
 	return web.json_response(
 		{"records": records}
-		| ({"cursor": rkey} if len(records) == limit else {})
+		| ({"cursor": last_rkey} if len(records) == limit else {})
 	)
 
 

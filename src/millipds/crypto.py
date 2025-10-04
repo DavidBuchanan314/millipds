@@ -53,9 +53,7 @@ def assert_dss_sig_is_low_s(dss_sig: bytes, curve: ec.EllipticCurve) -> None:
 
 def raw_sign(privkey: ec.EllipticCurvePrivateKey, data: bytes) -> bytes:
 	r, s = decode_dss_signature(
-		apply_low_s_mitigation(
-			privkey.sign(data, ECDSA_SHA256), privkey.curve
-		)
+		apply_low_s_mitigation(privkey.sign(data, ECDSA_SHA256), privkey.curve)
 	)
 	signature = r.to_bytes(32, "big") + s.to_bytes(32, "big")
 	return signature

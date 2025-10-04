@@ -43,7 +43,7 @@ def verify_symmetric_token(
 	revoked = db.con.execute(
 		"SELECT COUNT(*) FROM revoked_token WHERE did=? AND jti=?",
 		(payload["sub"], payload["jti"]),
-	).fetchone()[0]
+	).get
 
 	if revoked:
 		raise web.HTTPUnauthorized(text="revoked token")
@@ -119,7 +119,7 @@ def authenticated(handler):
 			revoked = db.con.execute(
 				"SELECT COUNT(*) FROM revoked_token WHERE did=? AND jti=?",
 				(payload["iss"], payload["jti"]),
-			).fetchone()[0]
+			).get
 
 			if revoked:
 				raise web.HTTPUnauthorized(text="revoked token")

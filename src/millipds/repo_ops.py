@@ -10,7 +10,16 @@ I'm never planning on replacing sqlite with anything else, so the tight coupling
 """
 
 import io
-from typing import List, TypedDict, Literal, TYPE_CHECKING, Optional, Tuple, Set
+from typing import (
+	List,
+	TypedDict,
+	Literal,
+	TYPE_CHECKING,
+	Optional,
+	Tuple,
+	Set,
+	cast,
+)
 
 if TYPE_CHECKING:
 	from typing import NotRequired  # not suppored <= py3.10
@@ -39,45 +48,49 @@ logger = logging.getLogger(__name__)
 # record plus full merkle path as CAR (or nonexistence proof)
 def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 	with db.new_con(readonly=True) as con:
-		row = con.execute(
+		match con.execute(
 			"SELECT id, head, commit_bytes FROM user WHERE did=?", (did,)
-		).fetchone()
+		).get:
+			case None:
+				logger.info("did not found")
+				return None
+			case (user_id, head, commit_bytes):
+				car = io.BytesIO()
+				car.write(util.serialize_car_header(head))
+				car.write(util.serialize_car_entry(head, commit_bytes))
 
-		if row is None:
-			logger.info("did not found")
-			return None
+				commit = cast(dict, cbrrr.decode_dag_cbor(commit_bytes))
 
-		user_id, head, commit_bytes = row
-		car = io.BytesIO()
-		car.write(util.serialize_car_header(head))
-		car.write(util.serialize_car_entry(head, commit_bytes))
+				bs = DBBlockStore(con, did)
+				ns = NodeStore(bs)
 
-		commit = cbrrr.decode_dag_cbor(commit_bytes)
+				record_cid, proof_cids = proof.find_rpath_and_build_proof(
+					ns, commit["data"], path
+				)
+				for cid in proof_cids:
+					cid_bytes = bytes(cid)
+					car.write(
+						util.serialize_car_entry(
+							cid_bytes, bs.get_block(cid_bytes)
+						)
+					)
 
-		bs = DBBlockStore(con, did)
-		ns = NodeStore(bs)
+				if record_cid is None:
+					return car.getvalue()
 
-		record_cid, proof_cids = proof.find_rpath_and_build_proof(
-			ns, commit["data"], path
-		)
-		for cid in proof_cids:
-			cid_bytes = bytes(cid)
-			car.write(
-				util.serialize_car_entry(cid_bytes, bs.get_block(cid_bytes))
-			)
-
-		if record_cid is None:
-			return car.getvalue()
-
-		# we don't have a neat abstraction for fetching records yet...
-		record_cid_bytes = bytes(record_cid)
-		record, *_ = con.execute(
-			"SELECT value FROM record WHERE repo=? AND cid=?",
-			(user_id, record_cid_bytes),
-		).fetchone()
-		car.write(util.serialize_car_entry(record_cid_bytes, record))
-
-		return car.getvalue()
+				# we don't have a neat abstraction for fetching records yet...
+				record_cid_bytes = bytes(record_cid)
+				match con.execute(
+					"SELECT value FROM record WHERE repo=? AND cid=?",
+					(user_id, record_cid_bytes),
+				).get:
+					case None:
+						raise ValueError("record not found")
+					case (record, *_):
+						car.write(
+							util.serialize_car_entry(record_cid_bytes, record)
+						)
+						return car.getvalue()
 
 
 # https://github.com/bluesky-social/atproto/blob/main/lexicons/com/atproto/repo/applyWrites.json
@@ -115,16 +128,19 @@ def apply_writes(
 		bs = OverlayBlockStore(mem_bs, db_bs)
 		ns = NodeStore(bs)
 		wrangler = NodeWrangler(ns)
-		user_id, prev_commit, signing_key_pem, head = con.execute(
+		result = con.execute(
 			"SELECT id, commit_bytes, signing_key, head FROM user WHERE did=?",
 			(repo,),
-		).fetchone()
+		).get
+		if result is None:
+			raise ValueError("user not found")
+		user_id, prev_commit, signing_key_pem, head = result
 		if swap_commit is not None:
 			if cbrrr.CID.decode(swap_commit) != cbrrr.CID(head):
 				raise aiohttp.web.HTTPBadRequest(
 					text="swapCommit did not match current head"
 				)  # XXX: probably the wrong way to signal this error lol
-		prev_commit = cbrrr.decode_dag_cbor(prev_commit)
+		prev_commit = cast(dict, cbrrr.decode_dag_cbor(prev_commit))
 		prev_commit_root: cbrrr.CID = prev_commit["data"]
 		tid_now = util.tid_now()
 
@@ -149,20 +165,18 @@ def apply_writes(
 						raise aiohttp.web.HTTPBadRequest(
 							text="record already exists"
 						)
-				elif op.get("swapRecord"):  # only applies to #update
-					if cbrrr.CID.decode(op["swapRecord"]) != prev_cid:
+				swap_record = op.get("swapRecord")
+				if swap_record is not None:  # only applies to #update
+					if cbrrr.CID.decode(swap_record) != prev_cid:
 						raise aiohttp.web.HTTPBadRequest(
 							text="swapRecord did not match"
 						)
 
-				if isinstance(op["value"], dict):  # normal
-					value_cbor = cbrrr.encode_dag_cbor(
-						op["value"], atjson_mode=True
-					)
-				elif isinstance(
-					op["value"], str
-				):  # base64 dag-cbor record extension
-					value_cbor = base64.b64decode(op["value"])
+				value = op.get("value")
+				if isinstance(value, dict):  # normal
+					value_cbor = cbrrr.encode_dag_cbor(value, atjson_mode=True)
+				elif isinstance(value, str):  # base64 dag-cbor record extension
+					value_cbor = base64.b64decode(value)
 				else:
 					raise Exception("invalid record value type")
 
@@ -178,8 +192,9 @@ def apply_writes(
 					}
 				)
 			elif optype == "com.atproto.repo.applyWrites#delete":
-				if op.get("swapRecord"):
-					if cbrrr.CID.decode(op["swapRecord"]) != prev_cid:
+				swap_record = op.get("swapRecord")
+				if swap_record is not None:
+					if cbrrr.CID.decode(swap_record) != prev_cid:
 						raise aiohttp.web.HTTPBadRequest(
 							text="swapRecord did not match"
 						)
@@ -212,13 +227,15 @@ def apply_writes(
 		firehose_blobs = set()
 		deletion_proof_cids = set()
 		for delta in record_diff(ns, created, deleted):
+			prior_value = None
 			if delta.prior_value:
 				# needed for blob decref
 				prior_value = con.execute(
 					"SELECT value FROM record WHERE repo=? AND nsid=? AND rkey=?",
 					(user_id,) + util.split_path(delta.path),
-				).fetchone()[0]
+				).get
 			if delta.delta_type == DeltaType.CREATED:
+				assert delta.later_value is not None
 				new_record_cids.append(delta.later_value)
 				firehose_ops.append(
 					{
@@ -238,6 +255,8 @@ def apply_writes(
 					+ (bytes(delta.later_value), tid_now, new_value),
 				)
 			elif delta.delta_type == DeltaType.UPDATED:
+				assert delta.later_value is not None
+				assert prior_value is not None
 				new_record_cids.append(delta.later_value)
 				firehose_ops.append(
 					{
@@ -257,6 +276,7 @@ def apply_writes(
 					+ util.split_path(delta.path),
 				)
 			elif delta.delta_type == DeltaType.DELETED:
+				assert prior_value is not None
 				# for creates and updates, the proof cids are already in `created`
 				# - but deletion proofs are less obvious
 				deletion_proof_cids.update(
@@ -319,7 +339,7 @@ def apply_writes(
 
 		firehose_seq = con.execute(
 			"SELECT IFNULL(MAX(seq), 0) + 1 FROM firehose"
-		).fetchone()[0]
+		).get
 		firehose_body = {
 			"ops": firehose_ops,
 			"seq": firehose_seq,
@@ -392,16 +412,18 @@ def blob_incref(con: apsw.Connection, user_id: int, ref: cbrrr.CID, tid: str):
 
 
 def blob_decref(con: apsw.Connection, user_id: int, ref: cbrrr.CID):
-	blob_id, refcount = con.execute(
+	match con.execute(
 		"UPDATE blob SET refcount=refcount-1 WHERE blob.repo=? AND blob.cid=? RETURNING id, refcount",
 		(user_id, bytes(ref)),
-	).fetchone()
+	).get:
+		case None:
+			raise ValueError("blob not found for decref")
+		case (blob_id, refcount):
+			assert con.changes() == 1
+			assert refcount >= 0
 
-	assert con.changes() == 1
-	assert refcount >= 0
-
-	if refcount == 0:
-		con.execute(
-			"DELETE FROM blob_part WHERE blob=?", (blob_id,)
-		)  # TODO: could also make this happen in a delete hook?
-		con.execute("DELETE FROM blob WHERE id=?", (blob_id,))
+			if refcount == 0:
+				con.execute(
+					"DELETE FROM blob_part WHERE blob=?", (blob_id,)
+				)  # TODO: could also make this happen in a delete hook?
+				con.execute("DELETE FROM blob WHERE id=?", (blob_id,))

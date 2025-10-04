@@ -8,11 +8,11 @@ that led to this, and maybe a better solution in the future.
 import ipaddress
 from aiohttp import TCPConnector, ClientSession
 import aiohttp.connector
-from aiohttp.resolver import DefaultResolver, AbstractResolver
+from aiohttp.resolver import DefaultResolver, AbstractResolver  # type: ignore[attr-defined]
 
 # XXX: monkeypatch to force all hosts to go through the resolver
 # (without this, bare IPs in the URL will bypass the resolver, where our SSRF check is)
-aiohttp.connector.is_ip_address = lambda _: False
+aiohttp.connector.is_ip_address = lambda _: False  # type: ignore[attr-defined]
 
 
 class SSRFException(ValueError):
@@ -23,12 +23,12 @@ class SSRFSafeResolverWrapper(AbstractResolver):
 	def __init__(self, resolver: AbstractResolver):
 		self.resolver = resolver
 
-	async def resolve(self, host: str, port: int, family: int):
-		result = await self.resolver.resolve(host, port, family)
-		for host in result:
-			if ipaddress.ip_address(host["host"]).is_private:
+	async def resolve(self, host: str, port: int, family: int):  # type: ignore[override]
+		result = await self.resolver.resolve(host, port, family)  # type: ignore[arg-type]
+		for host in result:  # type: ignore[assignment]
+			if ipaddress.ip_address(host["host"]).is_private:  # type: ignore[index,call-arg]
 				raise SSRFException(
-					"Can't connect to private IP: " + host["host"]
+					"Can't connect to private IP: " + host["host"]  # type: ignore[index]
 				)
 		return result
 

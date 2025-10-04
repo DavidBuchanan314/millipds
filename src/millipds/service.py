@@ -11,7 +11,7 @@ import hashlib
 
 import apsw
 import aiohttp
-from aiohttp_middlewares import cors_middleware
+from aiohttp_middlewares.cors import cors_middleware
 from aiohttp import web
 import jwt
 
@@ -389,7 +389,7 @@ async def identity_update_handle(request: web.Request):
 		# TODO: refactor to avoid duplicated logic between here and apply_writes
 		firehose_seq = con.execute(
 			"SELECT IFNULL(MAX(seq), 0) + 1 FROM firehose"
-		).fetchone()[0]
+		).get
 		firehose_bytes = cbrrr.encode_dag_cbor(
 			{"t": "#identity", "op": 1}
 		) + cbrrr.encode_dag_cbor(
@@ -417,7 +417,7 @@ async def identity_update_handle(request: web.Request):
 		# TODO: refactor to avoid duplicated logic between here and apply_writes
 		firehose_seq = con.execute(
 			"SELECT IFNULL(MAX(seq), 0) + 1 FROM firehose"
-		).fetchone()[0]
+		).get
 		firehose_bytes = cbrrr.encode_dag_cbor(
 			{"t": "#account", "op": 1}
 		) + cbrrr.encode_dag_cbor(

@@ -44,6 +44,9 @@ async def service_proxy(request: web.Request, service: Optional[str] = None):
 		service_route = db.config["bsky_appview_pfx"]
 
 	signing_key = db.signing_key_pem_by_did(request["authed_did"])
+	if signing_key is None:
+		return web.HTTPInternalServerError(text="signing key not found")
+
 	auth_headers = {
 		"Authorization": "Bearer "
 		+ jwt.encode(
