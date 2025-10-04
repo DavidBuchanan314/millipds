@@ -23,4 +23,4 @@ jobs:
           python3 -m pip install .[test]
       - name: Run the tests
         run: |
-          python3 -m pytest tests/integration_test.py
+          python3 -m pytest tests/
