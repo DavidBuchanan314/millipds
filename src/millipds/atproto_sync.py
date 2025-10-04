@@ -24,21 +24,21 @@ async def sync_get_blob(request: web.Request):
 				request.query["did"],
 				bytes(cbrrr.CID.decode(request.query["cid"])),
 			),  # TODO: check params exist first, give nicer error
-		).fetchone()
+		).get
 		if blob_id is None:
 			raise web.HTTPNotFound(text="blob not found")
 
 		# Calculate total blob size efficiently
 		# Most parts are BLOB_PART_SIZE, only the last part may be smaller
 		num_parts = con.execute(
-			"SELECT COUNT(*) FROM blob_part WHERE blob=?", (blob_id[0],)
+			"SELECT COUNT(*) FROM blob_part WHERE blob=?", (blob_id,)
 		).get
 		if num_parts == 0:
 			total_size = 0
 		else:
 			last_part_size = con.execute(
 				"SELECT LENGTH(data) FROM blob_part WHERE blob=? ORDER BY idx DESC LIMIT 1",
-				(blob_id[0],),
+				(blob_id,),
 			).get
 			total_size = (
 				num_parts - 1
@@ -112,7 +112,7 @@ async def sync_get_blob(request: web.Request):
 			*_,
 		) in con.execute(
 			"SELECT data FROM blob_part WHERE blob=? AND idx>=? AND idx<=? ORDER BY idx",
-			(blob_id[0], first_part_idx, last_part_idx),
+			(blob_id, first_part_idx, last_part_idx),
 		):
 			part_size = len(blob_part)
 
