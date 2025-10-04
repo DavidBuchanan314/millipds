@@ -33,12 +33,18 @@ logger = logging.getLogger(__name__)
 
 routes = web.RouteTableDef()
 
+# bsky-specific hack - appview does not implement these routes
+PROXY_OVERRIDE_PATHS = [
+	"/xrpc/app.bsky.actor.getPreferences",
+	"/xrpc/app.bsky.actor.putPreferences",
+]
+
 
 @web.middleware
 async def atproto_service_proxy_middleware(request: web.Request, handler):
 	# https://atproto.com/specs/xrpc#service-proxying
 	atproto_proxy = request.headers.get("atproto-proxy")
-	if atproto_proxy:
+	if atproto_proxy and request.path not in PROXY_OVERRIDE_PATHS:
 		return await service_proxy(request, atproto_proxy)
 
 	# else, normal response
