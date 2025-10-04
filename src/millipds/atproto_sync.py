@@ -150,33 +150,34 @@ async def sync_get_repo(request: web.Request):
 	with get_db(request).new_con(
 		readonly=True
 	) as con:  # make sure we have a consistent view of the repo
-		try:
-			user_id, head, commit_bytes = con.execute(
-				"SELECT id, head, commit_bytes FROM user WHERE did=?", (did,)
-			).fetchone()
-		except TypeError:  # from trying to unpack None
-			raise web.HTTPNotFound(text="repo not found")
+		match con.execute(
+			"SELECT id, head, commit_bytes FROM user WHERE did=?", (did,)
+		).get:
+			case None:
+				raise web.HTTPNotFound(text="repo not found")
+			case (user_id, head, commit_bytes):
+				res = web.StreamResponse()
+				res.content_type = "application/vnd.ipld.car"
+				await res.prepare(request)
+				await res.write(util.serialize_car_header(head))
+				await res.write(util.serialize_car_entry(head, commit_bytes))
 
-		res = web.StreamResponse()
-		res.content_type = "application/vnd.ipld.car"
-		await res.prepare(request)
-		await res.write(util.serialize_car_header(head))
-		await res.write(util.serialize_car_entry(head, commit_bytes))
+				for mst_cid, mst_value in con.execute(
+					"SELECT cid, value FROM mst WHERE repo=? AND since>?",
+					(user_id, since),
+				):
+					await res.write(util.serialize_car_entry(mst_cid, mst_value))
 
-		for mst_cid, mst_value in con.execute(
-			"SELECT cid, value FROM mst WHERE repo=? AND since>?",
-			(user_id, since),
-		):
-			await res.write(util.serialize_car_entry(mst_cid, mst_value))
+				for record_cid, record_value in con.execute(
+					"SELECT cid, value FROM record WHERE repo=? AND since>?",
+					(user_id, since),
+				):
+					await res.write(util.serialize_car_entry(record_cid, record_value))
 
-		for record_cid, record_value in con.execute(
-			"SELECT cid, value FROM record WHERE repo=? AND since>?",
-			(user_id, since),
-		):
-			await res.write(util.serialize_car_entry(record_cid, record_value))
-
-	await res.write_eof()
-	return res
+				await res.write_eof()
+				return res
+			case _:
+				raise RuntimeError("unexpected query result")
 
 
 @routes.get("/xrpc/com.atproto.sync.listBlobs")
@@ -193,14 +194,16 @@ async def sync_list_blobs(request: web.Request):
 	cursor = int(request.query.get("cursor", 0))
 
 	cids = []
+	last_id = None
 	for id_, cid in get_db(request).con.execute(
 		"SELECT blob.id, cid FROM blob INNER JOIN user ON blob.repo=user.id WHERE did=? AND refcount>0 AND since>? AND blob.id>? ORDER BY blob.id LIMIT ?",
 		(did, since, cursor, limit),
 	):
+		last_id = id_
 		cids.append(cbrrr.CID(cid).encode())
 
 	return web.json_response(
-		{"cids": cids} | ({"cursor": id_} if len(cids) == limit else {})
+		{"cids": cids} | ({"cursor": last_id} if len(cids) == limit else {})
 	)
 
 
@@ -253,24 +256,25 @@ async def sync_subscribe_repos(request: web.Request):
 			while True:
 				# we read one at a time to force gaps between reads - could be a perf win to read in small batches
 				# TODO: what happens if the reader is slow, falling outside of the backfill window?
-				row = db.con.execute(
+				match db.con.execute(
 					"SELECT seq, msg FROM firehose WHERE seq>? ORDER BY seq LIMIT 1",
 					(cursor,),
-				).fetchone()
-				if row is None:
-					# XXX: we could drop messages arriving between the db read, and setting up our livetail queue
-					# I think we can solve this by having some sort of ringbuffer that always holds the last N
-					# messages, which we check *after* setting up the queue.
-					# or maybe we should do an extra db read after setting up the queue? maybe we could be reading a stale snapshot of the db though.
-					break
-				cursor, msg = row
-				await ws.send_bytes(msg)
-				last_sent_seq = cursor
+				).get:
+					case None:
+						# XXX: we could drop messages arriving between the db read, and setting up our livetail queue
+						# I think we can solve this by having some sort of ringbuffer that always holds the last N
+						# messages, which we check *after* setting up the queue.
+						# or maybe we should do an extra db read after setting up the queue? maybe we could be reading a stale snapshot of the db though.
+						break
+					case (new_cursor, msg):
+						cursor = new_cursor
+						await ws.send_bytes(msg)
+						last_sent_seq = cursor
 
 			if last_sent_seq is None:
 				current_seq = db.con.execute(
 					"SELECT IFNULL(MAX(seq), 0) FROM firehose"
-				).fetchone()[0]
+				).get
 				if cursor > current_seq:
 					await ws.send_bytes(FUTURECURSOR_MSG)
 					await ws.close()
