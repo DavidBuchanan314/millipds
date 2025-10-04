@@ -5,7 +5,7 @@ Password hashing also happens in here, because it doesn't make much sense to do
 it anywhere else.
 """
 
-from typing import Optional, Dict, List, Tuple, cast
+from typing import Optional, Dict, List, Tuple, cast, TypedDict
 from functools import cached_property
 import secrets
 import logging
@@ -26,6 +26,26 @@ logger = logging.getLogger(__name__)
 
 # https://rogerbinns.github.io/apsw/bestpractice.html
 apsw.bestpractice.apply(apsw.bestpractice.recommended)
+
+
+class MillipdsConfigPartial(TypedDict):
+	"""Config as stored in database - some fields may be None"""
+	db_version: int
+	jwt_access_secret: str
+	pds_pfx: Optional[str]
+	pds_did: Optional[str]
+	bsky_appview_pfx: Optional[str]
+	bsky_appview_did: Optional[str]
+
+
+class MillipdsConfig(TypedDict):
+	"""Fully initialized config - all fields are present"""
+	db_version: int
+	jwt_access_secret: str
+	pds_pfx: str
+	pds_did: str
+	bsky_appview_pfx: str
+	bsky_appview_did: str
 
 
 class DBBlockStore(BlockStore):
@@ -289,7 +309,7 @@ class Database:
 			pass
 
 	@cached_property
-	def config(self) -> Dict[str, object]:
+	def config(self) -> MillipdsConfig:
 		config_fields = (
 			"db_version",
 			"pds_pfx",
@@ -305,12 +325,20 @@ class Database:
 			case None:
 				raise Exception("config not initialized")
 			case cfg:
-				# TODO: consider using a properly typed dataclass rather than a dict
-				# see also https://docs.python.org/3/library/typing.html#typing.TypedDict
-				return dict(zip(config_fields, cfg))
+				partial = cast(MillipdsConfigPartial, dict(zip(config_fields, cfg)))
+				# Validate that all required fields are present
+				if partial["pds_pfx"] is None or partial["pds_did"] is None or \
+				   partial["bsky_appview_pfx"] is None or partial["bsky_appview_did"] is None:
+					raise Exception("config is incomplete - run initialization first")
+				# Now we can safely cast to the full config type
+				return cast(MillipdsConfig, partial)
 
 	def config_is_initialised(self) -> bool:
-		return all(v is not None for v in self.config.values())
+		try:
+			_ = self.config
+			return True
+		except Exception:
+			return False
 
 	def print_config(self, redact_secrets: bool = True) -> None:
 		maxlen = max(map(len, self.config))
