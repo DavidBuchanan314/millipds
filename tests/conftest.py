@@ -64,6 +64,7 @@ async def test_pds(aiolib):
 			db.update_config(
 				pds_pfx=f"http://{hostname}",
 				pds_did=f"did:web:{urllib.parse.quote(hostname)}",
+				auth_pfx=f"http://{hostname}",
 				bsky_appview_pfx="https://api.bsky.app",
 				bsky_appview_did="did:web:api.bsky.app",
 			)
@@ -92,6 +93,7 @@ async def test_pds(aiolib):
 			db.update_config(
 				pds_pfx=f"http://{hostname}",
 				pds_did=f"did:web:{urllib.parse.quote(hostname)}",
+				auth_pfx=f"http://{hostname}",
 				bsky_appview_pfx="https://api.bsky.app",
 				bsky_appview_did="did:web:api.bsky.app",
 			)
