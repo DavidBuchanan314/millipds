@@ -5,7 +5,7 @@ Password hashing also happens in here, because it doesn't make much sense to do
 it anywhere else.
 """
 
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, cast
 from functools import cached_property
 import secrets
 import logging
@@ -35,17 +35,20 @@ class DBBlockStore(BlockStore):
 
 	def __init__(self, db: apsw.Connection, repo: str) -> None:
 		self.db = db
-		self.user_id = self.db.execute(
+		user_id = self.db.execute(
 			"SELECT id FROM user WHERE did=?", (repo,)
-		).fetchone()[0]
+		).get
+		if user_id is None:
+			raise KeyError(f"user not found: {repo}")
+		self.user_id = user_id
 
 	def get_block(self, key: bytes) -> bytes:
-		row = self.db.execute(
+		value = self.db.execute(
 			"SELECT value FROM mst WHERE repo=? AND cid=?", (self.user_id, key)
-		).fetchone()
-		if row is None:
+		).get
+		if value is None:
 			raise KeyError("block not found in db")
-		return row[0]
+		return value
 
 	def del_block(self, key: bytes) -> None:
 		raise NotImplementedError("TODO?")
@@ -65,7 +68,7 @@ class Database:
 
 		config_exists = self.con.execute(
 			"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='config'"
-		).fetchone()[0]
+		).get
 
 		if config_exists:
 			if self.config["db_version"] != static_config.MILLIPDS_DB_VERSION:
@@ -296,13 +299,15 @@ class Database:
 			"jwt_access_secret",
 		)
 
-		cfg = self.con.execute(
+		match self.con.execute(
 			f"SELECT {', '.join(config_fields)} FROM config"
-		).fetchone()
-
-		# TODO: consider using a properly typed dataclass rather than a dict
-		# see also https://docs.python.org/3/library/typing.html#typing.TypedDict
-		return dict(zip(config_fields, cfg))
+		).get:
+			case None:
+				raise Exception("config not initialized")
+			case cfg:
+				# TODO: consider using a properly typed dataclass rather than a dict
+				# see also https://docs.python.org/3/library/typing.html#typing.TypedDict
+				return dict(zip(config_fields, cfg))
 
 	def config_is_initialised(self) -> bool:
 		return all(v is not None for v in self.config.values())
@@ -374,52 +379,45 @@ class Database:
 	def verify_account_login(
 		self, did_or_handle: str, password: str
 	) -> Tuple[str, str]:
-		row = self.con.execute(
+		match self.con.execute(
 			"SELECT did, handle, pw_hash FROM user WHERE did=? OR handle=?",
 			(did_or_handle, did_or_handle),
-		).fetchone()
-		if row is None:
-			raise KeyError("no account found for did")
-		did, handle, pw_hash = row
-		try:
-			self.pw_hasher.verify(pw_hash, password)
-		except argon2.exceptions.VerifyMismatchError:
-			raise ValueError("invalid password")
-		return did, handle
+		).get:
+			case None:
+				raise KeyError("no account found for did")
+			case (did, handle, pw_hash):
+				try:
+					self.pw_hasher.verify(pw_hash, password)
+				except argon2.exceptions.VerifyMismatchError:
+					raise ValueError("invalid password")
+				return did, handle
+			case _:
+				raise RuntimeError("unexpected query result")
 
 	def did_by_handle(self, handle: str) -> Optional[str]:
-		row = self.con.execute(
+		return self.con.execute(
 			"SELECT did FROM user WHERE handle=?", (handle,)
-		).fetchone()
-		if row is None:
-			return None
-		return row[0]
+		).get
 
 	def handle_by_did(self, did: str) -> Optional[str]:
-		row = self.con.execute(
+		return self.con.execute(
 			"SELECT handle FROM user WHERE did=?", (did,)
-		).fetchone()
-		if row is None:
-			return None
-		return row[0]
+		).get
 
 	def signing_key_pem_by_did(self, did: str) -> Optional[str]:
-		row = self.con.execute(
+		return self.con.execute(
 			"SELECT signing_key FROM user WHERE did=?", (did,)
-		).fetchone()
-		if row is None:
-			return None
-		return row[0]
+		).get
 
 	def list_repos(
 		self,
 	) -> List[Tuple[str, cbrrr.CID, str]]:  # TODO: pagination
 		return [
-			(did, cbrrr.CID(head), rev)
+			(cast(str, did), cbrrr.CID(cast(bytes, head)), cast(str, rev))
 			for did, head, rev in self.con.execute(
 				"SELECT did, head, rev FROM user"
 			).fetchall()
 		]
 
-	def get_blockstore(self, did: str) -> "Database":
-		return DBBlockStore(self, did)
+	def get_blockstore(self, did: str) -> DBBlockStore:
+		return DBBlockStore(self.con, did)
