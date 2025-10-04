@@ -37,8 +37,6 @@ PROXY_OVERRIDE_PATHS = [
 	# bsky-specific hack - appview does not implement these routes
 	"/xrpc/app.bsky.actor.getPreferences",
 	"/xrpc/app.bsky.actor.putPreferences",
-	# I think this one is a bsky.app bug
-	"/xrpc/com.atproto.server.getServiceAuth",
 ]
 
 
@@ -46,7 +44,11 @@ PROXY_OVERRIDE_PATHS = [
 async def atproto_service_proxy_middleware(request: web.Request, handler):
 	# https://atproto.com/specs/xrpc#service-proxying
 	atproto_proxy = request.headers.get("atproto-proxy")
-	if atproto_proxy and request.path not in PROXY_OVERRIDE_PATHS:
+	if (
+		atproto_proxy
+		and request.path not in PROXY_OVERRIDE_PATHS
+		and not request.path.startswith("/xrpc/com.atproto.")
+	):
 		return await service_proxy(request, atproto_proxy)
 
 	# else, normal response
