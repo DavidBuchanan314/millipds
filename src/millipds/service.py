@@ -11,7 +11,7 @@ import hashlib
 
 import apsw
 import aiohttp
-from aiohttp_middlewares import cors_middleware
+from aiohttp_middlewares.cors import cors_middleware
 from aiohttp import web
 import jwt
 

@@ -1,3 +1,5 @@
 {
-	"typeCheckingMode": "standard"
+	"typeCheckingMode": "standard",
+	"venvPath": ".",
+	"venv": ".venv"
 }
