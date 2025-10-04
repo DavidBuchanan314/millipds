@@ -33,10 +33,12 @@ logger = logging.getLogger(__name__)
 
 routes = web.RouteTableDef()
 
-# bsky-specific hack - appview does not implement these routes
 PROXY_OVERRIDE_PATHS = [
+	# bsky-specific hack - appview does not implement these routes
 	"/xrpc/app.bsky.actor.getPreferences",
 	"/xrpc/app.bsky.actor.putPreferences",
+	# I think this one is a bsky.app bug
+	"/xrpc/com.atproto.server.getServiceAuth",
 ]
 
 
