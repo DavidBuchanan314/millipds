@@ -38,7 +38,7 @@ def make_capture_random_bound_port_web_tcpsite_start(queue: asyncio.Queue):
 	async def mock_start(site: aiohttp.web.TCPSite, *args, **kwargs):
 		nonlocal queue
 		await old_web_tcpsite_start(site, *args, **kwargs)
-		await queue.put(site._server.sockets[0].getsockname()[1])
+		await queue.put(site._server.sockets[0].getsockname()[1])  # type: ignore[union-attr]
 
 	return mock_start
 
@@ -84,7 +84,7 @@ async def test_pds(aiolib):
 				return_when=asyncio.FIRST_COMPLETED,
 			)
 			if done == service_run_task:
-				raise service_run_task.exception()
+				raise service_run_task.exception()  # type: ignore[misc]
 			else:
 				port = queue_get_task.result()
 

@@ -25,7 +25,7 @@ async def test_repo_uploadBlob(s, pds_host, auth_headers):
 	# getBlob should 404 because refcount==0
 	async with s.get(
 		pds_host + "/xrpc/com.atproto.sync.getBlob",
-		params={"did": TEST_DID, "cid": res["blob"]["ref"]["$link"]},
+		params={"did": TEST_DID, "cid": res["blob"]["ref"]["$link"]},  # type: ignore[possibly-unbound]
 	) as r:
 		assert r.status == 404
 

@@ -218,7 +218,7 @@ async def test_repo_applyWrites_base64_cbor(s, pds_host, auth_headers):
 	"""Test applyWrites with base64-encoded CBOR values."""
 	rkey = "base64-cbor-test"
 	value = {"text": "encoded as cbor"}
-	cbor_bytes = cbrrr.encode_dag_cbor(value)
+	cbor_bytes = cbrrr.encode_dag_cbor(value)  # type: ignore[arg-type]
 	b64_cbor = base64.b64encode(cbor_bytes).decode()
 
 	async with s.post(

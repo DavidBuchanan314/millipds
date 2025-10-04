@@ -26,7 +26,7 @@ def make_capture_random_bound_port_web_tcpsite_startstart(queue: asyncio.Queue):
 	async def mock_start(site: aiohttp.web.TCPSite, *args, **kwargs):
 		nonlocal queue
 		await old_web_tcpsite_start(site, *args, **kwargs)
-		await queue.put(site._server.sockets[0].getsockname()[1])
+		await queue.put(site._server.sockets[0].getsockname()[1])  # type: ignore[union-attr]
 
 	return mock_start
 
@@ -82,7 +82,7 @@ async def test_pds(aiolib):
 				return_when=asyncio.FIRST_COMPLETED,
 			)
 			if done == service_run_task:
-				raise service_run_task.execption()
+				raise service_run_task.exception()  # type: ignore[misc]
 			else:
 				port = queue_get_task.result()
 
@@ -290,7 +290,7 @@ async def test_repo_uploadBlob(s, pds_host, auth_headers):
 	# getBlob should still 404 because refcount==0
 	async with s.get(
 		pds_host + "/xrpc/com.atproto.sync.getBlob",
-		params={"did": TEST_DID, "cid": res["blob"]["ref"]["$link"]},
+		params={"did": TEST_DID, "cid": res["blob"]["ref"]["$link"]},  # type: ignore[possibly-unbound]
 	) as r:
 		assert r.status == 404
 
@@ -301,7 +301,7 @@ async def test_repo_uploadBlob(s, pds_host, auth_headers):
 		json={
 			"repo": TEST_DID,
 			"collection": "app.bsky.feed.post",
-			"record": {"myblob": res},
+			"record": {"myblob": res},  # type: ignore[possibly-unbound]
 		},
 	) as r:
 		print(await r.json())
@@ -309,7 +309,7 @@ async def test_repo_uploadBlob(s, pds_host, auth_headers):
 
 	async with s.get(
 		pds_host + "/xrpc/com.atproto.sync.getBlob",
-		params={"did": TEST_DID, "cid": res["blob"]["ref"]["$link"]},
+		params={"did": TEST_DID, "cid": res["blob"]["ref"]["$link"]},  # type: ignore[possibly-unbound]
 	) as r:
 		downloaded_blob = await r.read()
 		assert downloaded_blob == blob
