@@ -63,6 +63,7 @@ def deep_iter(obj: cbrrr.DagCborTypes) -> Iterator[cbrrr.DagCborTypes]:
 	# "stack" will consist of recursively chained iterators
 	stack = iter([obj, sentinel])
 	while (item := next(stack)) is not sentinel:
+		assert item is not sentinel  # type narrowing
 		yield item
 		match item:
 			case dict():
