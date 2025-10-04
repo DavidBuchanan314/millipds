@@ -21,6 +21,9 @@ jobs:
       - name: Install millipds python module
         run: |
           python3 -m pip install .[test]
+      - name: Run pyright type checking
+        run: |
+          python3 -m pyright src/millipds/
       - name: Run the tests
         run: |
           python3 -m pytest tests/
