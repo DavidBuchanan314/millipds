@@ -45,6 +45,9 @@ test = [
 	"pytest-aiohttp",
 	"pytest-depends",
 ]
+dev = [
+	"ruff",
+]
 
 [project.urls]
 Homepage = "https://github.com/DavidBuchanan314/millipds"
