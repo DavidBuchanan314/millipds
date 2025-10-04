@@ -116,9 +116,7 @@ async def test_sync_getRepoStatus_not_found(s, pds_host):
 
 async def test_sync_listRepos(s, pds_host):
 	"""Test listRepos endpoint."""
-	async with s.get(
-		pds_host + "/xrpc/com.atproto.sync.listRepos"
-	) as r:
+	async with s.get(pds_host + "/xrpc/com.atproto.sync.listRepos") as r:
 		assert r.status == 200
 		data = await r.json()
 		assert "repos" in data

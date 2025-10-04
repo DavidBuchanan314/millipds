@@ -10,7 +10,16 @@ I'm never planning on replacing sqlite with anything else, so the tight coupling
 """
 
 import io
-from typing import List, TypedDict, Literal, TYPE_CHECKING, Optional, Tuple, Set, cast
+from typing import (
+	List,
+	TypedDict,
+	Literal,
+	TYPE_CHECKING,
+	Optional,
+	Tuple,
+	Set,
+	cast,
+)
 
 if TYPE_CHECKING:
 	from typing import NotRequired  # not suppored <= py3.10
@@ -61,7 +70,9 @@ def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 				for cid in proof_cids:
 					cid_bytes = bytes(cid)
 					car.write(
-						util.serialize_car_entry(cid_bytes, bs.get_block(cid_bytes))
+						util.serialize_car_entry(
+							cid_bytes, bs.get_block(cid_bytes)
+						)
 					)
 
 				if record_cid is None:
@@ -76,7 +87,9 @@ def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 					case None:
 						raise ValueError("record not found")
 					case (record, *_):
-						car.write(util.serialize_car_entry(record_cid_bytes, record))
+						car.write(
+							util.serialize_car_entry(record_cid_bytes, record)
+						)
 						return car.getvalue()
 
 
@@ -161,12 +174,8 @@ def apply_writes(
 
 				value = op.get("value")
 				if isinstance(value, dict):  # normal
-					value_cbor = cbrrr.encode_dag_cbor(
-						value, atjson_mode=True
-					)
-				elif isinstance(
-					value, str
-				):  # base64 dag-cbor record extension
+					value_cbor = cbrrr.encode_dag_cbor(value, atjson_mode=True)
+				elif isinstance(value, str):  # base64 dag-cbor record extension
 					value_cbor = base64.b64decode(value)
 				else:
 					raise Exception("invalid record value type")

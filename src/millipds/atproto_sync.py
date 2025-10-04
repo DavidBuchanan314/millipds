@@ -166,13 +166,17 @@ async def sync_get_repo(request: web.Request):
 					"SELECT cid, value FROM mst WHERE repo=? AND since>?",
 					(user_id, since),
 				):
-					await res.write(util.serialize_car_entry(mst_cid, mst_value))
+					await res.write(
+						util.serialize_car_entry(mst_cid, mst_value)
+					)
 
 				for record_cid, record_value in con.execute(
 					"SELECT cid, value FROM record WHERE repo=? AND since>?",
 					(user_id, since),
 				):
-					await res.write(util.serialize_car_entry(record_cid, record_value))
+					await res.write(
+						util.serialize_car_entry(record_cid, record_value)
+					)
 
 				await res.write_eof()
 				return res

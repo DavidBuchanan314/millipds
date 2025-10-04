@@ -30,6 +30,7 @@ apsw.bestpractice.apply(apsw.bestpractice.recommended)
 
 class MillipdsConfigPartial(TypedDict):
 	"""Config as stored in database - some fields may be None"""
+
 	db_version: int
 	jwt_access_secret: str
 	pds_pfx: Optional[str]
@@ -40,6 +41,7 @@ class MillipdsConfigPartial(TypedDict):
 
 class MillipdsConfig(TypedDict):
 	"""Fully initialized config - all fields are present"""
+
 	db_version: int
 	jwt_access_secret: str
 	pds_pfx: str
@@ -325,11 +327,19 @@ class Database:
 			case None:
 				raise Exception("config not initialized")
 			case cfg:
-				partial = cast(MillipdsConfigPartial, dict(zip(config_fields, cfg)))
+				partial = cast(
+					MillipdsConfigPartial, dict(zip(config_fields, cfg))
+				)
 				# Validate that all required fields are present
-				if partial["pds_pfx"] is None or partial["pds_did"] is None or \
-				   partial["bsky_appview_pfx"] is None or partial["bsky_appview_did"] is None:
-					raise Exception("config is incomplete - run initialization first")
+				if (
+					partial["pds_pfx"] is None
+					or partial["pds_did"] is None
+					or partial["bsky_appview_pfx"] is None
+					or partial["bsky_appview_did"] is None
+				):
+					raise Exception(
+						"config is incomplete - run initialization first"
+					)
 				# Now we can safely cast to the full config type
 				return cast(MillipdsConfig, partial)
 

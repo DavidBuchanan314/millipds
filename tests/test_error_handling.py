@@ -54,17 +54,13 @@ async def test_repo_listRecords_missing_params(s, pds_host):
 
 async def test_repo_describeRepo_missing_param(s, pds_host):
 	"""Test describeRepo with missing repo parameter."""
-	async with s.get(
-		pds_host + "/xrpc/com.atproto.repo.describeRepo"
-	) as r:
+	async with s.get(pds_host + "/xrpc/com.atproto.repo.describeRepo") as r:
 		assert r.status == 400
 
 
 async def test_sync_getLatestCommit_missing_did(s, pds_host):
 	"""Test getLatestCommit without DID parameter."""
-	async with s.get(
-		pds_host + "/xrpc/com.atproto.sync.getLatestCommit"
-	) as r:
+	async with s.get(pds_host + "/xrpc/com.atproto.sync.getLatestCommit") as r:
 		assert r.status == 400
 		text = await r.text()
 		assert "did" in text.lower()
@@ -72,17 +68,13 @@ async def test_sync_getLatestCommit_missing_did(s, pds_host):
 
 async def test_sync_getRepoStatus_missing_did(s, pds_host):
 	"""Test getRepoStatus without DID parameter."""
-	async with s.get(
-		pds_host + "/xrpc/com.atproto.sync.getRepoStatus"
-	) as r:
+	async with s.get(pds_host + "/xrpc/com.atproto.sync.getRepoStatus") as r:
 		assert r.status == 400
 
 
 async def test_sync_listBlobs_missing_did(s, pds_host):
 	"""Test listBlobs without DID parameter."""
-	async with s.get(
-		pds_host + "/xrpc/com.atproto.sync.listBlobs"
-	) as r:
+	async with s.get(pds_host + "/xrpc/com.atproto.sync.listBlobs") as r:
 		assert r.status == 400
 
 
