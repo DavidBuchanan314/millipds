@@ -41,7 +41,7 @@ def hostname_from_url(url: str) -> str:
 	return parsed.netloc
 
 
-FILANEME_SAFE_CHARS = (
+FILENAME_SAFE_CHARS = (
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 )
 
