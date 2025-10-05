@@ -10,9 +10,10 @@ from functools import cached_property
 import secrets
 import logging
 
-import argon2  # maybe this should come from .crypto?
 import apsw
 import apsw.bestpractice
+from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
+from cryptography.exceptions import InvalidKey
 
 import cbrrr
 from atmst.blockstore import BlockStore
@@ -88,7 +89,6 @@ class Database:
 		if "/" in path:
 			util.mkdirs_for_file(path)
 		self.con = self.new_con()
-		self.pw_hasher = argon2.PasswordHasher()
 
 		config_exists = self.con.execute(
 			"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='config'"
@@ -365,6 +365,27 @@ class Database:
 				v = "[REDACTED]"
 			print(f"{k:<{maxlen}} : {v!r}")
 
+	def _hash_password(self, password: str) -> str:
+		# NOTE: it is safe to increase these params over time, although existing
+		# hashes in db will not (yet) automatically get re-hashed
+		argon2 = Argon2id(
+			salt=secrets.token_bytes(16),  # 16 bytes = 128 bits
+			length=32,  # 32 bytes = 256 bits output
+			iterations=3,
+			lanes=4,
+			memory_cost=65536,
+		)
+
+		return argon2.derive_phc_encoded(password.encode())
+
+	def _verify_password(self, password_hash: str, password: str) -> None:
+		"""Raises ValueError if password doesn't match."""
+
+		try:
+			Argon2id.verify_phc_encoded(password.encode(), password_hash)
+		except InvalidKey:
+			raise ValueError("invalid password")
+
 	def create_account(
 		self,
 		did: str,
@@ -372,7 +393,7 @@ class Database:
 		password: str,
 		privkey: crypto.ec.EllipticCurvePrivateKey,
 	) -> None:
-		pw_hash = self.pw_hasher.hash(password)
+		pw_hash = self._hash_password(password)
 		privkey_pem = crypto.privkey_to_pem(privkey)
 		logger.info(f"creating account for did={did}, handle={handle}")
 
@@ -432,10 +453,7 @@ class Database:
 			case None:
 				raise KeyError("no account found for did")
 			case (did, handle, pw_hash):
-				try:
-					self.pw_hasher.verify(pw_hash, password)
-				except argon2.exceptions.VerifyMismatchError:
-					raise ValueError("invalid password")
+				self._verify_password(pw_hash, password)
 				return did, handle
 			case _:
 				raise RuntimeError("unexpected query result")
