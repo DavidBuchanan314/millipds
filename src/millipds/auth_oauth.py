@@ -16,9 +16,16 @@ logger = logging.getLogger(__name__)
 # this is a bit of a hack to annotate routes as AS-only, to be checked via middleware
 class AnnotatedRouteTableDef(web.RouteTableDef):
 	def route(self, method: str, path: str, **kwargs):
-		fn = super().route(method, path, **kwargs)
-		setattr(fn, "_is_as_route", True)
-		return fn
+		decorator = super().route(method, path, **kwargs)
+
+		def wrapper(handler):
+			# Apply the original decorator
+			result = decorator(handler)
+			# Set the attribute on the handler (which is returned by decorator)
+			setattr(result, "_is_as_route", True)
+			return result
+
+		return wrapper
 
 
 as_routes = AnnotatedRouteTableDef()
