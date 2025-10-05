@@ -12,6 +12,16 @@ from .app_util import *
 
 logger = logging.getLogger(__name__)
 
+
+# this is a bit of a hack to annotate routes as AS-only, to be checked via middleware
+class AnnotatedRouteTableDef(web.RouteTableDef):
+	def route(self, method: str, path: str, **kwargs):
+		fn = super().route(method, path, **kwargs)
+		setattr(fn, "_is_as_route", True)
+		return fn
+
+
+as_routes = AnnotatedRouteTableDef()
 routes = web.RouteTableDef()
 
 # we need to use a weaker-than-usual CSP to let the CSS and form submission work
@@ -27,9 +37,7 @@ async def oauth_protected_resource(request: web.Request):
 	return web.json_response(
 		{
 			"resource": cfg["pds_pfx"],
-			"authorization_servers": [
-				cfg["pds_pfx"]
-			],  # we are our own auth server
+			"authorization_servers": [cfg["auth_pfx"]],
 			"scopes_supported": [],
 			"bearer_methods_supported": ["header"],
 			"resource_documentation": "https://atproto.com",
@@ -38,13 +46,13 @@ async def oauth_protected_resource(request: web.Request):
 
 
 # example: https://bsky.social/.well-known/oauth-authorization-server
-@routes.get("/.well-known/oauth-authorization-server")
+@as_routes.get("/.well-known/oauth-authorization-server")
 async def oauth_authorization_server(request: web.Request):
 	# XXX: most of these values are currently bogus!!! I copy pasted bsky's one
 	# TODO: fill in alg_supported lists based on what pyjwt actually supports
 	# perhaps via jwt.api_jws.get_default_algorithms().keys(), but we'd want to exclude the symmetric ones
 	cfg = get_db(request).config
-	pfx = cfg["pds_pfx"]
+	pfx = cfg["auth_pfx"]
 	return web.json_response(
 		{
 			"issuer": pfx,
@@ -121,7 +129,7 @@ async def oauth_authorization_server(request: web.Request):
 
 # this is where a client will redirect to during the auth flow.
 # they'll see a webpage asking them to login
-@routes.get("/oauth/authorize")
+@as_routes.get("/oauth/authorize")
 async def oauth_authorize(request: web.Request):
 	# TODO: extract request_uri
 	return web.Response(
@@ -133,7 +141,7 @@ async def oauth_authorize(request: web.Request):
 
 # after login, assuming the creds were good, the user will be prompted to
 # authorize the client application to access certain scopes
-@routes.post("/oauth/authorize")
+@as_routes.post("/oauth/authorize")
 async def oauth_authorize_handle_login(request: web.Request):
 	# TODO: actually handle login
 	return web.Response(
@@ -207,7 +215,7 @@ def dpop_protected(handler):
 	return dpop_handler
 
 
-@routes.post("/oauth/par")
+@as_routes.post("/oauth/par")
 @dpop_protected
 async def oauth_pushed_authorization_request(request: web.Request):
 	data = (
