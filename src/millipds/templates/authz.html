@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Authorize{% endblock %}
+{% block content %}
+		<h3>application <code>{{ client_id }}</code> wants permission to:</h3>
+		<ul>
+			<li>eat the last donut</li>
+			<li>install linux on your toaster</li>
+			<li>deprecate your dependencies</li>
+		</ul>
+		<p>this is just a UI test, it doesn't actually do anything yet.</p>
+		<form action="{{ form_action }}" method="POST">
+			<input type="submit" value="authorize">
+		</form>
+{% endblock %}
