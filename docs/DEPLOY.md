@@ -80,6 +80,7 @@ server {
 
 	location / {
 		proxy_pass http://millipds;
+		proxy_set_header Host $host;
 		proxy_http_version 1.1;
 		proxy_set_header Connection "upgrade";
 		proxy_set_header Upgrade $http_upgrade;
@@ -87,6 +88,7 @@ server {
 		proxy_read_timeout 1d;
 		proxy_redirect off;
 		proxy_buffering off;
+		proxy_request_buffering off;
 		access_log off;
 	}
 }
@@ -102,6 +104,7 @@ server {
 
 	location / {
 		proxy_pass http://millipds;
+		proxy_set_header Host $host;
 		proxy_http_version 1.1;
 		proxy_set_header Connection "upgrade";
 		proxy_set_header Upgrade $http_upgrade;
@@ -109,6 +112,7 @@ server {
 		proxy_read_timeout 1d;
 		proxy_redirect off;
 		proxy_buffering off;
+		proxy_request_buffering off;
 		access_log off;
 	}
 }
