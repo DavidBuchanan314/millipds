@@ -66,7 +66,9 @@ TODO: put this file in the repo so it can be copied into place more easily.
 
 Put this in `/etc/systemd/system/millipds.service`
 
-Create a new nginx config:
+Create nginx configs:
+
+For the PDS hostname:
 ```
 upstream millipds {
 	server unix:/run/millipds/millipds.sock fail_timeout=0;
@@ -89,11 +91,34 @@ server {
 	}
 }
 ```
-TODO: is fail_timeout=0 sensible?
 
 Put this in `/etc/nginx/sites-enabled/millipds`
 
-Note: For a prod setup, you'll need to enable SSL. That's outside the scope of this guide, but one way is "once you have the service accessible via HTTP, use certbot"
+If using a separate authorization server hostname, create an additional config:
+```
+server {
+	listen 80;
+	server_name auth.millipds.test; # CHANGEME!
+
+	location / {
+		proxy_pass http://millipds;
+		proxy_http_version 1.1;
+		proxy_set_header Connection "upgrade";
+		proxy_set_header Upgrade $http_upgrade;
+		proxy_set_header X-Forwarded-For $remote_addr;
+		proxy_read_timeout 1d;
+		proxy_redirect off;
+		proxy_buffering off;
+		access_log off;
+	}
+}
+```
+
+Put this in `/etc/nginx/sites-enabled/millipds-auth` (note: do NOT duplicate the `upstream millipds` block)
+
+TODO: is fail_timeout=0 sensible?
+
+Note: For a prod setup, you'll need to enable SSL. That's outside the scope of this guide, but one way is "once you have the service accessible via HTTP, use certbot". If using a separate auth hostname, run certbot for both hostnames.
 
 Add the user that nginx runs under (`www-data`) to the `millipds-sock` group:
 

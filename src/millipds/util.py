@@ -15,6 +15,7 @@ from typing import (
 	Type,
 )
 from weakref import WeakValueDictionary
+from urllib.parse import urlparse
 
 from aiohttp import web
 
@@ -28,7 +29,19 @@ def mkdirs_for_file(path: str) -> None:
 	os.makedirs(os.path.dirname(path), exist_ok=True)
 
 
-FILANEME_SAFE_CHARS = (
+def hostname_from_url(url: str) -> str:
+	"""
+	Extract hostname from a URL string.
+	Examples:
+		"http://example.com" -> "example.com"
+		"https://example.com:8080" -> "example.com:8080"
+		"http://localhost:3000" -> "localhost:3000"
+	"""
+	parsed = urlparse(url)
+	return parsed.netloc
+
+
+FILENAME_SAFE_CHARS = (
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 )
 

@@ -42,12 +42,21 @@ PROXY_OVERRIDE_PATHS = [
 
 @web.middleware
 async def atproto_service_proxy_middleware(request: web.Request, handler):
+	# if the PDS has split RS/AS config, enforce that separation
+	is_as_route = getattr(handler, "_is_as_route", False)
+	cfg = get_db(request).config
+	if cfg["auth_pfx"] != cfg["pds_pfx"]:
+		is_as_request = request.host == util.hostname_from_url(cfg["auth_pfx"])
+		if is_as_request != is_as_route:
+			return web.HTTPNotFound()
+
 	# https://atproto.com/specs/xrpc#service-proxying
 	atproto_proxy = request.headers.get("atproto-proxy")
 	if (
 		atproto_proxy
 		and request.path not in PROXY_OVERRIDE_PATHS
 		and not request.path.startswith("/xrpc/com.atproto.")
+		and not is_as_route
 	):
 		return await service_proxy(request, atproto_proxy)
 
@@ -485,6 +494,7 @@ def construct_app(
 	app[MILLIPDS_DID_RESOLVER] = did_resolver
 
 	app.add_routes(routes)
+	app.add_routes(auth_oauth.as_routes)
 	app.add_routes(auth_oauth.routes)
 	app.add_routes(atproto_sync.routes)
 	app.add_routes(atproto_repo.routes)

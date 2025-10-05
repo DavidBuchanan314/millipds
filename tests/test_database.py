@@ -14,6 +14,7 @@ def test_did_by_handle_found():
 		db.update_config(
 			pds_pfx="http://test.local",
 			pds_did="did:web:test.local",
+			auth_pfx="http://test.local",
 			bsky_appview_pfx="https://api.bsky.app",
 			bsky_appview_did="did:web:api.bsky.app",
 		)
@@ -38,6 +39,7 @@ def test_did_by_handle_not_found():
 		db.update_config(
 			pds_pfx="http://test.local",
 			pds_did="did:web:test.local",
+			auth_pfx="http://test.local",
 			bsky_appview_pfx="https://api.bsky.app",
 			bsky_appview_did="did:web:api.bsky.app",
 		)
@@ -53,6 +55,7 @@ def test_handle_by_did_found():
 		db.update_config(
 			pds_pfx="http://test.local",
 			pds_did="did:web:test.local",
+			auth_pfx="http://test.local",
 			bsky_appview_pfx="https://api.bsky.app",
 			bsky_appview_did="did:web:api.bsky.app",
 		)
@@ -77,6 +80,7 @@ def test_handle_by_did_not_found():
 		db.update_config(
 			pds_pfx="http://test.local",
 			pds_did="did:web:test.local",
+			auth_pfx="http://test.local",
 			bsky_appview_pfx="https://api.bsky.app",
 			bsky_appview_did="did:web:api.bsky.app",
 		)
@@ -92,6 +96,7 @@ def test_signing_key_pem_by_did_found():
 		db.update_config(
 			pds_pfx="http://test.local",
 			pds_did="did:web:test.local",
+			auth_pfx="http://test.local",
 			bsky_appview_pfx="https://api.bsky.app",
 			bsky_appview_did="did:web:api.bsky.app",
 		)
@@ -117,6 +122,7 @@ def test_signing_key_pem_by_did_not_found():
 		db.update_config(
 			pds_pfx="http://test.local",
 			pds_did="did:web:test.local",
+			auth_pfx="http://test.local",
 			bsky_appview_pfx="https://api.bsky.app",
 			bsky_appview_did="did:web:api.bsky.app",
 		)
@@ -132,6 +138,7 @@ def test_list_repos():
 		db.update_config(
 			pds_pfx="http://test.local",
 			pds_did="did:web:test.local",
+			auth_pfx="http://test.local",
 			bsky_appview_pfx="https://api.bsky.app",
 			bsky_appview_did="did:web:api.bsky.app",
 		)
@@ -167,6 +174,7 @@ def test_config_is_initialised():
 		db.update_config(
 			pds_pfx="http://test.local",
 			pds_did="did:web:test.local",
+			auth_pfx="http://test.local",
 			bsky_appview_pfx="https://api.bsky.app",
 			bsky_appview_did="did:web:api.bsky.app",
 		)
@@ -182,6 +190,7 @@ def test_verify_account_login_success():
 		db.update_config(
 			pds_pfx="http://test.local",
 			pds_did="did:web:test.local",
+			auth_pfx="http://test.local",
 			bsky_appview_pfx="https://api.bsky.app",
 			bsky_appview_did="did:web:api.bsky.app",
 		)
@@ -215,6 +224,7 @@ def test_verify_account_login_wrong_password():
 		db.update_config(
 			pds_pfx="http://test.local",
 			pds_did="did:web:test.local",
+			auth_pfx="http://test.local",
 			bsky_appview_pfx="https://api.bsky.app",
 			bsky_appview_did="did:web:api.bsky.app",
 		)
@@ -237,6 +247,7 @@ def test_verify_account_login_nonexistent_user():
 		db.update_config(
 			pds_pfx="http://test.local",
 			pds_did="did:web:test.local",
+			auth_pfx="http://test.local",
 			bsky_appview_pfx="https://api.bsky.app",
 			bsky_appview_did="did:web:api.bsky.app",
 		)

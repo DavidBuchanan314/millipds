@@ -1,8 +1,8 @@
 """millipds CLI
 
 Usage:
-  millipds init <hostname> [--dev | --sandbox]
-  millipds config [--pds_pfx=URL] [--pds_did=DID] [--bsky_appview_pfx=URL] [--bsky_appview_did=DID]
+  millipds init <hostname> [--dev | --sandbox] [--auth_host=HOST]
+  millipds config [--pds_pfx=URL] [--pds_did=DID] [--auth_pfx=URL] [--bsky_appview_pfx=URL] [--bsky_appview_did=DID]
   millipds account create <did> <handle> [--unsafe_password=PW] [--signing_key=PEM]
   millipds run [--sock_path=PATH] [--listen_host=HOST] [--listen_port=PORT]
   millipds util keygen [--p256 | --k256]
@@ -19,6 +19,7 @@ Init:
   hostname            The public-facing hostname of this PDS, e.g. "bsky.social"
   --dev               Pre-set config options for local dev/testing
   --sandbox           Pre-set config options to work with the bsky "sandbox" network. Otherwise, default to bsky prod.
+  --auth_host=HOST    Separate hostname for authorization server (defaults to same as PDS hostname)
 
 Config:
   Any options not specified will be left at their previous values. Once changes
@@ -28,6 +29,7 @@ Config:
 
   --pds_pfx=URL           The HTTP URL prefix that this PDS is publicly accessible at (e.g. mypds.example)
   --pds_did=DID           This PDS's DID (e.g. did:web:mypds.example)
+  --auth_pfx=URL          The HTTP URL prefix for the authorization server (e.g. https://auth.mypds.example)
   --bsky_appview_pfx=URL  AppView URL prefix e.g. "https://api.bsky-sandbox.dev"
   --bsky_appview_did=DID  AppView DID e.g. did:web:api.bsky-sandbox.dev
 
@@ -99,10 +101,12 @@ def main():
 				" or manually delete the db and try again."
 			)
 			return
+		auth_host = args["--auth_host"] or args["<hostname>"]
 		if args["--dev"]:  # like prod but http://
 			db.update_config(
 				pds_pfx=f"http://{args['<hostname>']}",
 				pds_did=f"did:web:{urllib.parse.quote(args['<hostname>'])}",
+				auth_pfx=f"http://{auth_host}",
 				bsky_appview_pfx="https://api.bsky.app",
 				bsky_appview_did="did:web:api.bsky.app",
 			)
@@ -112,6 +116,7 @@ def main():
 			db.update_config(
 				pds_pfx=f"https://{args['<hostname>']}",
 				pds_did=f"did:web:{urllib.parse.quote(args['<hostname>'])}",
+				auth_pfx=f"https://{auth_host}",
 				bsky_appview_pfx="https://api.bsky-sandbox.dev",
 				bsky_appview_did="did:web:api.bsky-sandbox.dev",
 			)
@@ -119,6 +124,7 @@ def main():
 			db.update_config(
 				pds_pfx=f"https://{args['<hostname>']}",
 				pds_did=f"did:web:{urllib.parse.quote(args['<hostname>'])}",
+				auth_pfx=f"https://{auth_host}",
 				bsky_appview_pfx="https://api.bsky.app",
 				bsky_appview_did="did:web:api.bsky.app",
 			)
@@ -203,6 +209,7 @@ def main():
 		db.update_config(
 			pds_pfx=args["--pds_pfx"],
 			pds_did=args["--pds_did"],
+			auth_pfx=args["--auth_pfx"],
 			bsky_appview_pfx=args["--bsky_appview_pfx"],
 			bsky_appview_did=args["--bsky_appview_did"],
 		)

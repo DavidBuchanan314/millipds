@@ -35,6 +35,7 @@ class MillipdsConfigPartial(TypedDict):
 	jwt_access_secret: str
 	pds_pfx: Optional[str]
 	pds_did: Optional[str]
+	auth_pfx: Optional[str]
 	bsky_appview_pfx: Optional[str]
 	bsky_appview_did: Optional[str]
 
@@ -46,6 +47,7 @@ class MillipdsConfig(TypedDict):
 	jwt_access_secret: str
 	pds_pfx: str
 	pds_did: str
+	auth_pfx: str
 	bsky_appview_pfx: str
 	bsky_appview_did: str
 
@@ -129,6 +131,7 @@ class Database:
 				db_version INTEGER NOT NULL,
 				pds_pfx TEXT,
 				pds_did TEXT,
+				auth_pfx TEXT,
 				bsky_appview_pfx TEXT,
 				bsky_appview_did TEXT,
 				jwt_access_secret TEXT NOT NULL
@@ -288,6 +291,7 @@ class Database:
 		self,
 		pds_pfx: Optional[str] = None,
 		pds_did: Optional[str] = None,
+		auth_pfx: Optional[str] = None,
 		bsky_appview_pfx: Optional[str] = None,
 		bsky_appview_did: Optional[str] = None,
 	):
@@ -296,6 +300,8 @@ class Database:
 				self.con.execute("UPDATE config SET pds_pfx=?", (pds_pfx,))
 			if pds_did is not None:
 				self.con.execute("UPDATE config SET pds_did=?", (pds_did,))
+			if auth_pfx is not None:
+				self.con.execute("UPDATE config SET auth_pfx=?", (auth_pfx,))
 			if bsky_appview_pfx is not None:
 				self.con.execute(
 					"UPDATE config SET bsky_appview_pfx=?", (bsky_appview_pfx,)
@@ -316,6 +322,7 @@ class Database:
 			"db_version",
 			"pds_pfx",
 			"pds_did",
+			"auth_pfx",
 			"bsky_appview_pfx",
 			"bsky_appview_did",
 			"jwt_access_secret",
@@ -334,6 +341,7 @@ class Database:
 				if (
 					partial["pds_pfx"] is None
 					or partial["pds_did"] is None
+					or partial["auth_pfx"] is None
 					or partial["bsky_appview_pfx"] is None
 					or partial["bsky_appview_did"] is None
 				):
