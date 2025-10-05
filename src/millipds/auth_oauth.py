@@ -7,7 +7,6 @@ import json
 from aiohttp import web
 
 from . import database
-from . import html_templates
 from .app_util import *
 
 logger = logging.getLogger(__name__)
@@ -139,8 +138,9 @@ async def oauth_authorization_server(request: web.Request):
 @as_routes.get("/oauth/authorize")
 async def oauth_authorize(request: web.Request):
 	# TODO: extract request_uri
+	html = get_jinja_env(request).get_template("authn.html").render()
 	return web.Response(
-		text=html_templates.authn_page(),  # this includes a login form that POSTs to /oauth/authorize (i.e. same endpoint)
+		text=html,  # this includes a login form that POSTs to /oauth/authorize (i.e. same endpoint)
 		content_type="text/html",
 		headers=WEBUI_HEADERS,
 	)
@@ -151,8 +151,11 @@ async def oauth_authorize(request: web.Request):
 @as_routes.post("/oauth/authorize")
 async def oauth_authorize_handle_login(request: web.Request):
 	# TODO: actually handle login
+	html = get_jinja_env(request).get_template("authz.html").render(
+		client_id="http://localhost/foobar.json", form_action="/oauth/foobar"
+	)
 	return web.Response(
-		text=html_templates.authz_page(),
+		text=html,
 		content_type="text/html",
 		headers=WEBUI_HEADERS,
 	)

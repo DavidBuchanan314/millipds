@@ -3,6 +3,7 @@ import asyncio
 
 import aiohttp
 from aiohttp import web
+from jinja2 import Environment
 
 from . import database
 from .did import DIDResolver
@@ -18,6 +19,7 @@ MILLIPDS_FIREHOSE_QUEUES_LOCK = web.AppKey(
 	"MILLIPDS_FIREHOSE_QUEUES_LOCK", asyncio.Lock
 )
 MILLIPDS_DID_RESOLVER = web.AppKey("MILLIPDS_DID_RESOLVER", DIDResolver)
+MILLIPDS_JINJA_ENV = web.AppKey("MILLIPDS_JINJA_ENV", Environment)
 
 
 # these helpers are useful for conciseness and type hinting
@@ -41,15 +43,21 @@ def get_did_resolver(req: web.Request):
 	return req.app[MILLIPDS_DID_RESOLVER]
 
 
+def get_jinja_env(req: web.Request):
+	return req.app[MILLIPDS_JINJA_ENV]
+
+
 __all__ = [
 	"MILLIPDS_DB",
 	"MILLIPDS_AIOHTTP_CLIENT",
 	"MILLIPDS_FIREHOSE_QUEUES",
 	"MILLIPDS_FIREHOSE_QUEUES_LOCK",
 	"MILLIPDS_DID_RESOLVER",
+	"MILLIPDS_JINJA_ENV",
 	"get_db",
 	"get_client",
 	"get_firehose_queues",
 	"get_firehose_queues_lock",
 	"get_did_resolver",
+	"get_jinja_env",
 ]

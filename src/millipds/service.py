@@ -8,12 +8,14 @@ import io
 import json
 import uuid
 import hashlib
+from pathlib import Path
 
 import apsw
 import aiohttp
 from aiohttp_middlewares.cors import cors_middleware
 from aiohttp import web
 import jwt
+from jinja2 import Environment, FileSystemLoader
 
 import cbrrr
 
@@ -48,7 +50,7 @@ async def atproto_service_proxy_middleware(request: web.Request, handler):
 	if cfg["auth_pfx"] != cfg["pds_pfx"]:
 		is_as_request = request.host == util.hostname_from_url(cfg["auth_pfx"])
 		if is_as_request != is_as_route:
-			return web.HTTPNotFound()
+			raise web.HTTPNotFound()
 
 	# https://atproto.com/specs/xrpc#service-proxying
 	atproto_proxy = request.headers.get("atproto-proxy")
@@ -486,12 +488,21 @@ def construct_app(
 
 	did_resolver = DIDResolver(client, static_config.PLC_DIRECTORY_HOST)
 
+	# Set up Jinja2 template environment
+	template_dir = Path(__file__).parent / "templates"
+	jinja_env = Environment(
+		loader=FileSystemLoader(template_dir),
+		autoescape=True,
+		auto_reload=False,  # Templates loaded once at startup
+	)
+
 	app = web.Application(middlewares=[cors, atproto_service_proxy_middleware])
 	app[MILLIPDS_DB] = db
 	app[MILLIPDS_AIOHTTP_CLIENT] = client
 	app[MILLIPDS_FIREHOSE_QUEUES] = set()
 	app[MILLIPDS_FIREHOSE_QUEUES_LOCK] = asyncio.Lock()
 	app[MILLIPDS_DID_RESOLVER] = did_resolver
+	app[MILLIPDS_JINJA_ENV] = jinja_env
 
 	app.add_routes(routes)
 	app.add_routes(auth_oauth.as_routes)

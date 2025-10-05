@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Authorize{% endblock %}
+{% block content %}
+		<h3>put yer creds in the box.</h3>
+		<form action="" method="POST">
+			<label>handle: <input type="text" name="handle" value="todo.invalid" placeholder="bob.example.org"></label>
+			<label>password: <input type="password" name="password" placeholder="password"></label>
+			<input type="submit" value="sign in">
+		</form>
+{% endblock %}
