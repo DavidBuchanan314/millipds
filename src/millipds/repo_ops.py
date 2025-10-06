@@ -79,17 +79,16 @@ def get_record(db: Database, did: str, path: str) -> Optional[bytes]:
 					return car.getvalue()
 
 				# we don't have a neat abstraction for fetching records yet...
-				record_cid_bytes = bytes(record_cid)
+				collection, rkey = util.split_path(path)
 				match con.execute(
-					"SELECT value FROM record WHERE repo=? AND cid=? LIMIT 1",
-					(user_id, record_cid_bytes),
+					"SELECT cid, value FROM record WHERE repo=? AND nsid=? AND rkey=?",
+					(user_id, collection, rkey),
 				).get:
 					case None:
 						raise ValueError("record not found")
-					case record:
-						car.write(
-							util.serialize_car_entry(record_cid_bytes, record)
-						)
+					case cid, record:
+						assert cid == bytes(record_cid)
+						car.write(util.serialize_car_entry(cid, record))
 						return car.getvalue()
 
 
