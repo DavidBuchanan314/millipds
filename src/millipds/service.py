@@ -220,6 +220,7 @@ async def server_describe_server(request: web.Request):
 		{
 			"did": get_db(request).config["pds_did"],
 			"availableUserDomains": [],
+			"version": importlib.metadata.version("millipds"),  # off-spec
 		}
 	)
 

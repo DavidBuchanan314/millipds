@@ -151,8 +151,13 @@ async def oauth_authorize(request: web.Request):
 @as_routes.post("/oauth/authorize")
 async def oauth_authorize_handle_login(request: web.Request):
 	# TODO: actually handle login
-	html = get_jinja_env(request).get_template("authz.html").render(
-		client_id="http://localhost/foobar.json", form_action="/oauth/foobar"
+	html = (
+		get_jinja_env(request)
+		.get_template("authz.html")
+		.render(
+			client_id="http://localhost/foobar.json",
+			form_action="/oauth/foobar",
+		)
 	)
 	return web.Response(
 		text=html,
