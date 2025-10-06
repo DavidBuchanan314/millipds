@@ -28,7 +28,8 @@ dependencies = [
 	"aiohttp-middlewares", # cors
 	"docopt",
 	"apsw",
-	"base58"
+	"base58",
+	"jinja2"
 ]
 
 [project.optional-dependencies]
