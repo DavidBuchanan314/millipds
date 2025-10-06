@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 
 routes = web.RouteTableDef()
 
+
+def get_version_string() -> str:
+	return f"millipds v{importlib.metadata.version('millipds')}"
+
+
 PROXY_OVERRIDE_PATHS = [
 	# bsky-specific hack - appview does not implement these routes
 	"/xrpc/app.bsky.actor.getPreferences",
@@ -80,7 +85,6 @@ async def atproto_service_proxy_middleware(request: web.Request, handler):
 
 @routes.get("/")
 async def hello(request: web.Request):
-	version = importlib.metadata.version("millipds")
 	msg = f"""
                           ,dPYb, ,dPYb,                           8I
                           IP'`Yb IP'`Yb                           8I
@@ -99,7 +103,7 @@ async def hello(request: web.Request):
                                               I8
 
 
-Hello! This is an ATProto PDS instance, running millipds v{version}
+Hello! This is an ATProto PDS instance, running {get_version_string()}
 
 https://github.com/DavidBuchanan314/millipds
 """
@@ -158,8 +162,7 @@ async def favicon(request: web.Request):
 # not a spec'd endpoint, but the reference impl has this too
 @routes.get("/xrpc/_health")
 async def health(request: web.Request):
-	version = importlib.metadata.version("millipds")
-	return web.json_response({"version": f"millipds v{version}"})
+	return web.json_response({"version": get_version_string()})
 
 
 # we should not be implementing bsky-specific logic here!
@@ -220,7 +223,7 @@ async def server_describe_server(request: web.Request):
 		{
 			"did": get_db(request).config["pds_did"],
 			"availableUserDomains": [],
-			"version": importlib.metadata.version("millipds"),  # off-spec
+			"version": get_version_string(),  # off-spec
 		}
 	)
 
@@ -483,9 +486,7 @@ def construct_app(
 		max_age=100_000_000,
 	)
 
-	client.headers.update(
-		{"User-Agent": importlib.metadata.version("millipds")}
-	)
+	client.headers.update({"User-Agent": get_version_string()})
 
 	did_resolver = DIDResolver(client, static_config.PLC_DIRECTORY_HOST)
 
