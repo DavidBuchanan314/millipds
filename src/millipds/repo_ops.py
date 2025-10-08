@@ -29,7 +29,7 @@ import base64
 
 import cbrrr
 
-from atmst.blockstore import OverlayBlockStore, MemoryBlockStore
+from atmst.blockstore import OverlayBlockStore, MemoryBlockStore, BlockStore
 from atmst.mst.node_store import NodeStore
 from atmst.mst.node_wrangler import NodeWrangler
 from atmst.mst.node_walker import NodeWalker
@@ -111,6 +111,24 @@ if TYPE_CHECKING:
 			],  # not required for delete - str is for base64-encoded dag-cbor
 		},
 	)
+
+
+# TODO: consider moving this into atmst
+# used for figuring out the blocks needed for inductive proofs
+class LoggingBlockStoreWrapper(BlockStore):
+	def __init__(self, bs: BlockStore):
+		self.bs = bs
+		self.gets = set()
+
+	def put_block(self, key: bytes, value: bytes) -> None:
+		self.bs.put_block(key, value)
+
+	def get_block(self, key: bytes) -> bytes:
+		self.gets.add(key)
+		return self.bs.get_block(key)
+
+	def del_block(self, key: bytes) -> None:
+		self.bs.del_block(key)
 
 
 # This is perhaps the most complex function in the whole codebase.
@@ -261,6 +279,7 @@ def apply_writes(
 					{
 						"cid": delta.later_value,
 						"path": delta.path,
+						"prev": delta.prior_value,
 						"action": "update",
 					}
 				)
@@ -284,7 +303,12 @@ def apply_writes(
 					)
 				)
 				firehose_ops.append(
-					{"cid": None, "path": delta.path, "action": "delete"}
+					{
+						"cid": None,
+						"path": delta.path,
+						"prev": delta.prior_value,
+						"action": "delete",
+					}
 				)
 				blob_decref_all(con, user_id, prior_value)
 				con.execute(
@@ -293,6 +317,25 @@ def apply_writes(
 				)
 			else:
 				raise Exception("unreachable")
+
+		# step 2b: compute inversion proof blocks
+		lbs = LoggingBlockStoreWrapper(bs)
+		lnw = NodeWrangler(
+			NodeStore(OverlayBlockStore(upper=MemoryBlockStore(), lower=lbs))
+		)
+		inversion_proof_root = next_commit_root
+		# TODO: what order should we use? see https://github.com/bluesky-social/proposals/issues/78
+		for op in firehose_ops[::-1]:
+			if op["action"] == "create":
+				inversion_proof_root = lnw.del_record(
+					inversion_proof_root, op["path"]
+				)
+			else:
+				inversion_proof_root = lnw.put_record(
+					inversion_proof_root, op["path"], op["prev"]
+				)
+		assert inversion_proof_root == prev_commit_root
+		inductive_proof_nodes = set(cbrrr.CID(cid) for cid in lbs.gets)
 
 		# step 3: persist MST changes (we have to do this *after* record_diff because it might need to read some old blocks from the db)
 		con.executemany(
@@ -331,7 +374,9 @@ def apply_writes(
 		car = io.BytesIO()
 		cw = util.CarWriter(car, commit_cid)
 		cw.write_block(commit_cid, commit_bytes)
-		for mst_cid in created | deletion_proof_cids:
+		# NOTE: in my testing, inductive_proof_nodes is always a superset of deletion_proof_cids,
+		# so we could probably avoid computing deletion_proof_cids explicitly.
+		for mst_cid in created | deletion_proof_cids | inductive_proof_nodes:
 			cw.write_block(mst_cid, bs.get_block(bytes(mst_cid)))
 		for record_cid in new_record_cids:
 			cw.write_block(record_cid, record_cbors[record_cid])
@@ -352,6 +397,7 @@ def apply_writes(
 			"commit": commit_cid,
 			"rebase": False,  # deprecated but still required
 			"tooBig": False,  # TODO: actually check lol
+			"prevData": prev_commit_root,
 		}
 		firehose_bytes = cbrrr.encode_dag_cbor(
 			{"t": "#commit", "op": 1}
