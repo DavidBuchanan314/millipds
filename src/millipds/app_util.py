@@ -23,7 +23,7 @@ MILLIPDS_JINJA_ENV = web.AppKey("MILLIPDS_JINJA_ENV", Environment)
 
 
 # these helpers are useful for conciseness and type hinting
-def get_db(req: web.Request):
+def get_db(req: web.Request) -> database.Database:
 	return req.app[MILLIPDS_DB]
 
 
